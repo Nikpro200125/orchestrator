@@ -1,4 +1,4 @@
-package com.nvp.orchestrator.service;
+package com.nvp.orchestrator.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.reflections.Reflections;
@@ -21,6 +21,7 @@ import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -39,6 +40,19 @@ public class ApiImplementationGenerator {
      * Генерация реализаций интерфейсов API.
      */
     public void generate() throws IOException {
+
+        // Получаем все классы из пакета org.openapitools.api
+        Collection<Class<?>> apiClasses = getClassesFromPackage("org.openapitools.api");
+        // Ищем интерфейсы
+        for (Class<?> apiInterface : apiClasses) {
+            if (apiInterface.isInterface() && apiInterface.getSimpleName().endsWith("Api")) {
+                generateImplementationForInterface(apiInterface);
+            }
+        }
+
+    }
+
+    private Collection<Class<?>> getClassesFromPackage(String packageName) {
         urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
         Path classesPath = generatedProjectPath.resolve("target/classes/org/openapitools/api");
         URL url = classesPath.toUri().toURL();
@@ -48,14 +62,7 @@ public class ApiImplementationGenerator {
                         .setScanners(Scanners.SubTypes.filterResultsBy(s -> true))
                         .setClassLoaders(new URLClassLoader[]{urlClassLoader})
         );
-        // Ищем интерфейсы
-        Set<Class<?>> apiInterfaces = reflections.getSubTypesOf(Object.class);
-        for (Class<?> apiInterface : apiInterfaces) {
-            if (apiInterface.isInterface() && apiInterface.getSimpleName().endsWith("Api")) {
-                generateImplementationForInterface(apiInterface);
-            }
-        }
-
+        return reflections.getSubTypesOf(Object.class);
     }
 
     /**

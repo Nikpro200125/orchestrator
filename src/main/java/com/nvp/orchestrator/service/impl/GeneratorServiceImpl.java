@@ -1,6 +1,6 @@
-package com.nvp.orchestrator.service;
+package com.nvp.orchestrator.service.impl;
 
-import lombok.NoArgsConstructor;
+import com.nvp.orchestrator.service.GeneratorService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -12,7 +12,7 @@ import java.nio.file.StandardCopyOption;
 
 @Service
 @RequiredArgsConstructor
-public class GenerationService {
+public class GeneratorServiceImpl implements GeneratorService {
 
     private Path generateWorkingDirectory() {
         try {
@@ -41,6 +41,7 @@ public class GenerationService {
         Files.copy(existingDockerfile, dockerfilePath, StandardCopyOption.REPLACE_EXISTING);
     }
 
+    @Override
     public String generate(MultipartFile openapiFile) throws Exception {
         if (openapiFile.isEmpty()) {
             throw new IllegalArgumentException("OpenAPI spec file is empty");
