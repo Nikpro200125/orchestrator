@@ -76,7 +76,6 @@ public class GeneratorServiceImpl implements GeneratorService {
 
         String name = DockerTools.build(tempDir);
         DockerTools.start(name);
-
-        return tempDir.toAbsolutePath().toString();
+        return DockerTools.getUrl(name);
     }
 }

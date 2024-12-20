@@ -17,15 +17,13 @@ public class OpenApiGenerator {
                 "-i", "/local/" + openapiSpec.getFileName(),
                 "-g", "spring",
                 "-o", "/local",
-                "--additional-properties=javaVersion=21," +
-                        "springBootVersion=3.4.0," +
+                "--library", "spring-boot",
+                "--additional-properties=" +
                         "interfaceOnly=true," +
-                        "groupId=org.openapitools," +
-                        "artifactId=generated-service-" + System.currentTimeMillis() + "," +
-                        "artifactVersion=1.0.0," +
-                        "apiPackage=org.openapitools.api," +
-                        "modelPackage=org.openapitools.model," +
-                        "useSpringBoot3=true"
+                        "useSpringBoot3=true," +
+                        "java8=true," +
+                        "skipDefaultInterface=true," +
+                        "additionalModelTypeAnnotations=\"@lombok.AllArgsConstructor\""
         );
         pb.inheritIO(); // Отображаем процесс в консоли для отладки
         Process process = pb.start();

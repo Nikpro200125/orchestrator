@@ -16,18 +16,11 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.Type;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 
 @RequiredArgsConstructor
 public class ApiImplementationGenerator {
@@ -42,7 +35,7 @@ public class ApiImplementationGenerator {
     public void generate() throws IOException {
 
         // Получаем все классы из пакета org.openapitools.api
-        Collection<Class<?>> apiClasses = getClassesFromPackage("org.openapitools.api");
+        Collection<Class<?>> apiClasses = getClassesFromPackage();
         // Ищем интерфейсы
         for (Class<?> apiInterface : apiClasses) {
             if (apiInterface.isInterface() && apiInterface.getSimpleName().endsWith("Api")) {
@@ -52,7 +45,7 @@ public class ApiImplementationGenerator {
 
     }
 
-    private Collection<Class<?>> getClassesFromPackage(String packageName) {
+    private Collection<Class<?>> getClassesFromPackage() throws MalformedURLException {
         urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
         Path classesPath = generatedProjectPath.resolve("target/classes/org/openapitools/api");
         URL url = classesPath.toUri().toURL();
@@ -186,9 +179,8 @@ public class ApiImplementationGenerator {
             return "null"; // Если нет доступных конструкторов
         }
 
-        // Выбираем случайный конструктор
-        Constructor<?> randomConstructor = accessibleConstructors.get(random.nextInt(accessibleConstructors.size()));
-
+        // Выбираем случайный конструктор с максимальным количеством параметров
+        Constructor<?> randomConstructor = accessibleConstructors.stream().max(Comparator.comparingInt(Constructor::getParameterCount)).get();
         // Генерируем параметры для конструктора
         StringBuilder constructorArgs = new StringBuilder();
         for (Parameter parameter : randomConstructor.getParameters()) {
