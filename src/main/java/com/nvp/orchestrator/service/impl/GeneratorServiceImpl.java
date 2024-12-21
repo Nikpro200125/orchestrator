@@ -2,6 +2,7 @@ package com.nvp.orchestrator.service.impl;
 
 import com.nvp.orchestrator.service.GeneratorService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -11,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class GeneratorServiceImpl implements GeneratorService {
 
@@ -18,6 +20,7 @@ public class GeneratorServiceImpl implements GeneratorService {
         try {
             return Files.createTempDirectory("generated-service-" + System.currentTimeMillis());
         } catch (Exception e) {
+            log.error("Failed to create working directory", e);
             throw new RuntimeException("Failed to create working directory", e);
         }
     }
@@ -27,18 +30,21 @@ public class GeneratorServiceImpl implements GeneratorService {
         Path applicationJavaPath = tempDir.resolve("src/main/java/org/openapitools/Application.java");
         Files.createDirectories(applicationJavaPath.getParent());
         Files.copy(existingApplicationJavaPath, applicationJavaPath, StandardCopyOption.REPLACE_EXISTING);
+        log.info("Application.java copied to {}", applicationJavaPath);
     }
 
     private void updatePomXML(Path tempDir) throws IOException {
         Path existingPomXMLPath = Path.of("src/main/resources/templates/pom.xml");
         Path pomXMLPath = tempDir.resolve("pom.xml");
         Files.copy(existingPomXMLPath, pomXMLPath, StandardCopyOption.REPLACE_EXISTING);
+        log.info("pom.xml copied to {}", pomXMLPath);
     }
 
     private void copyDockerfile(Path tempDir) throws IOException {
         Path existingDockerfile = Path.of("src/main/resources/templates/Dockerfile");
         Path dockerfilePath = tempDir.resolve("Dockerfile");
         Files.copy(existingDockerfile, dockerfilePath, StandardCopyOption.REPLACE_EXISTING);
+        log.info("Dockerfile copied to {}", dockerfilePath);
     }
 
     @Override

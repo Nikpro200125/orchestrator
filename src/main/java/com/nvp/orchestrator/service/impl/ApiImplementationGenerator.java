@@ -1,6 +1,7 @@
 package com.nvp.orchestrator.service.impl;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.reflections.Reflections;
 import org.reflections.scanners.Scanners;
 import org.reflections.util.ConfigurationBuilder;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 @RequiredArgsConstructor
+@Slf4j
 public class ApiImplementationGenerator {
 
     private final Path generatedProjectPath;
@@ -83,7 +85,7 @@ public class ApiImplementationGenerator {
         Path outputDir = generatedProjectPath.resolve("src/main/java");
         javaFile.writeTo(outputDir);
 
-        System.out.println("Сгенерирован класс: " + implClassName);
+        log.info("Сгенерирован класс: {}", implClassName);
     }
 
     /**
@@ -192,21 +194,6 @@ public class ApiImplementationGenerator {
 
         // Возвращаем строку для вызова конструктора
         return "new " + customClass.getSimpleName() + "(" + constructorArgs + ")";
-    }
-
-    // Проверка наличия конструктора по умолчанию
-    private boolean hasDefaultConstructor(Class<?> clazz) {
-        try {
-            return clazz.getDeclaredConstructor() != null;
-        } catch (NoSuchMethodException e) {
-            return false;
-        }
-    }
-
-    // Генерация mock-объекта для интерфейсов и классов без конструктора
-    private String generateMockObject(Class<?> customClass) {
-        String mockImplementation = customClass.getSimpleName() + "Mock";
-        return "new " + mockImplementation + "()";
     }
 
 }

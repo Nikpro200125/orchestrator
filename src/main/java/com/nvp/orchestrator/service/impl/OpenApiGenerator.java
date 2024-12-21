@@ -1,10 +1,12 @@
 package com.nvp.orchestrator.service.impl;
 
 import lombok.experimental.UtilityClass;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.nio.file.Path;
 
+@Slf4j
 @UtilityClass
 public class OpenApiGenerator {
 
@@ -31,6 +33,6 @@ public class OpenApiGenerator {
         if (exitCode != 0) {
             throw new RuntimeException("Failed to generate service. Exit code: " + exitCode);
         }
-        System.out.println("Service generated successfully at: " + tempDir.toAbsolutePath());
+        log.info("Service generated successfully at: {}", tempDir.toAbsolutePath());
     }
 }

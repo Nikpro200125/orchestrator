@@ -1,6 +1,7 @@
 package com.nvp.orchestrator.service.impl;
 
 import lombok.experimental.UtilityClass;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -8,6 +9,7 @@ import java.io.InputStreamReader;
 import java.nio.file.Path;
 
 @UtilityClass
+@Slf4j
 public class MavenTools {
 
     public static void compileGenerated(Path tempDir) {
@@ -24,19 +26,20 @@ public class MavenTools {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while((line = reader.readLine()) != null) {
-                    System.out.println(line);
+                    log.debug(line);
                 }
             }
 
             int exitCode = process.waitFor();
             if (exitCode == 0) {
-                System.out.println("Проект успешно скомпилирован!");
+                log.info("Проект успешно скомпилирован!");
             } else {
-                System.err.println("Произошла ошибка при компиляции проекта. Код выхода: " + exitCode);
+                log.error("Failed to compile project");
+                throw new RuntimeException("Failed to compile project");
             }
 
         } catch (IOException | InterruptedException e) {
-            System.err.println("Ошибка при выполнении команды mvn compile: " + e.getMessage());
+            log.error("Failed to compile project", e);
         }
     }
 
@@ -54,19 +57,20 @@ public class MavenTools {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while((line = reader.readLine()) != null) {
-                    System.out.println(line);
+                    log.debug(line);
                 }
             }
 
             int exitCode = process.waitFor();
             if (exitCode == 0) {
-                System.out.println("Проект успешно собран!");
+                log.info("Проект успешно собран!");
             } else {
-                System.err.println("Произошла ошибка при сборке проекта. Код выхода: " + exitCode);
+                log.error("Failed to generate JAR");
+                throw new RuntimeException("Failed to generate JAR");
             }
 
         } catch (IOException | InterruptedException e) {
-            System.err.println("Ошибка при выполнении команды mvn package: " + e.getMessage());
+            log.error("Failed to generate JAR", e);
         }
     }
 }
