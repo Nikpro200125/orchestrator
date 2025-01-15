@@ -6,4 +6,6 @@ public interface GeneratorService {
 
     String generate(MultipartFile openapiFile) throws Exception;
 
+    String generateLibSL(MultipartFile libSLFile) throws Exception;
+
 }

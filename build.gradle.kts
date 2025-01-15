@@ -15,6 +15,7 @@ java {
 
 repositories {
     mavenCentral()
+    maven("https://jitpack.io")
 }
 
 dependencies {
@@ -26,10 +27,10 @@ dependencies {
     }
     implementation("javax.ws.rs:javax.ws.rs-api:2.1.1")
     implementation("org.reflections:reflections:0.10.2")
-    implementation("org.instancio:instancio-core:5.2.1")
-    implementation("com.github.docker-java:docker-java:3.4.1")
+    implementation("com.github.vpa-research:libsl-parser:tr-v0.1")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    implementation("io.swagger.core.v3:swagger-core:2.2.27")
 }
 
 tasks.withType<Test> {

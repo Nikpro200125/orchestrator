@@ -1,11 +1,17 @@
 package com.nvp.orchestrator.service.impl;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.nvp.orchestrator.service.GeneratorService;
+import io.swagger.v3.oas.models.OpenAPI;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.research.libsl.nodes.Library;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +21,8 @@ import java.nio.file.StandardCopyOption;
 @Slf4j
 @RequiredArgsConstructor
 public class GeneratorServiceImpl implements GeneratorService {
+
+    private final LibSLParserServiceImpl libSLParserService;
 
     private Path generateWorkingDirectory() {
         try {
@@ -83,5 +91,30 @@ public class GeneratorServiceImpl implements GeneratorService {
         String name = DockerTools.build(tempDir);
         DockerTools.start(name);
         return DockerTools.getUrl(name);
+    }
+
+    @Override
+    public String generateLibSL(MultipartFile libSLFile) {
+        if (libSLFile.isEmpty()) {
+            throw new IllegalArgumentException("LibSL spec file is empty");
+        }
+
+        Library lib;
+        try {
+            Path file = Files.createTempFile("libsl_" + System.currentTimeMillis(), ".sl");
+            Files.copy(libSLFile.getInputStream(), file, StandardCopyOption.REPLACE_EXISTING);
+            lib = libSLParserService.parseLibSL(file);
+            OpenAPI openApiSpec = libSLParserService.generateOpenAPI(lib);
+            ObjectMapper yf = new ObjectMapper(new YAMLFactory());
+            yf.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+            File oasFile = Files.createTempFile("openApiSpec_" + System.currentTimeMillis(), ".yaml").toFile();
+            yf.writeValue(oasFile, openApiSpec);
+            log.info("OpenAPI spec generated successfully, saved to file: {}", oasFile.getPath());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to save file", e);
+        }
+
+
+        return null;
     }
 }
