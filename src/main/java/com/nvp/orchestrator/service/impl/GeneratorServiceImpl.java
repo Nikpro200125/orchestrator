@@ -109,7 +109,7 @@ public class GeneratorServiceImpl implements GeneratorService {
         Path openApiSpecPath;
 
         try {
-            Path file = tempDir.resolve("libsl_" + System.currentTimeMillis() + ".sl");
+            Path file = tempDir.resolve("libsl_" + System.currentTimeMillis() + ".lsl");
             Files.copy(libSLFile.getInputStream(), file, StandardCopyOption.REPLACE_EXISTING);
             Library lib = libSLParserService.parseLibSL(file);
             OpenAPI openApiSpec = libSLParserService.generateOpenAPI(lib);
