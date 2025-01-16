@@ -7,6 +7,7 @@ import com.nvp.orchestrator.service.GeneratorService;
 import io.swagger.v3.oas.models.OpenAPI;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.research.libsl.nodes.Library;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -65,6 +66,11 @@ public class GeneratorServiceImpl implements GeneratorService {
         Path openapiSpecPath = tempDir.resolve("openapi.yaml");
         Files.copy(openapiFile.getInputStream(), openapiSpecPath, StandardCopyOption.REPLACE_EXISTING);
 
+        return generateServiceFromOpenApi(tempDir, openapiSpecPath);
+    }
+
+    @NotNull
+    private String generateServiceFromOpenApi(Path tempDir, Path openapiSpecPath) throws IOException, InterruptedException {
         try {
             OpenApiGenerator.generateSpringService(tempDir, openapiSpecPath);
         } catch (Exception e) {
@@ -94,27 +100,33 @@ public class GeneratorServiceImpl implements GeneratorService {
     }
 
     @Override
-    public String generateLibSL(MultipartFile libSLFile) {
+    public String generateLibSL(MultipartFile libSLFile) throws IOException, InterruptedException {
         if (libSLFile.isEmpty()) {
             throw new IllegalArgumentException("LibSL spec file is empty");
         }
 
-        Library lib;
+        Path tempDir = generateWorkingDirectory();
+        Path openApiSpecPath;
+
         try {
-            Path file = Files.createTempFile("libsl_" + System.currentTimeMillis(), ".sl");
+            Path file = tempDir.resolve("libsl_" + System.currentTimeMillis() + ".sl");
             Files.copy(libSLFile.getInputStream(), file, StandardCopyOption.REPLACE_EXISTING);
-            lib = libSLParserService.parseLibSL(file);
+            Library lib = libSLParserService.parseLibSL(file);
             OpenAPI openApiSpec = libSLParserService.generateOpenAPI(lib);
-            ObjectMapper yf = new ObjectMapper(new YAMLFactory());
-            yf.setSerializationInclusion(JsonInclude.Include.NON_NULL);
-            File oasFile = Files.createTempFile("openApiSpec_" + System.currentTimeMillis(), ".yaml").toFile();
-            yf.writeValue(oasFile, openApiSpec);
+            ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+
+            mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+            mapper.setSerializationInclusion(JsonInclude.Include.NON_DEFAULT);
+
+            openApiSpecPath = tempDir.resolve("openApiSpec_" + System.currentTimeMillis() + ".yaml");
+            File oasFile = openApiSpecPath.toFile();
+            mapper.writeValue(oasFile, openApiSpec);
             log.info("OpenAPI spec generated successfully, saved to file: {}", oasFile.getPath());
+
         } catch (Exception e) {
             throw new RuntimeException("Failed to save file", e);
         }
 
-
-        return null;
+        return generateServiceFromOpenApi(tempDir, openApiSpecPath);
     }
 }
