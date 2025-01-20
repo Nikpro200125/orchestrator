@@ -1,5 +1,6 @@
 package com.nvp.orchestrator.service.impl;
 
+import com.nvp.orchestrator.service.enums.MethodAnnotation;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
@@ -16,7 +17,9 @@ import org.jetbrains.research.libsl.context.LslGlobalContext;
 import org.jetbrains.research.libsl.nodes.AnnotationUsage;
 import org.jetbrains.research.libsl.nodes.Automaton;
 import org.jetbrains.research.libsl.nodes.Function;
+import org.jetbrains.research.libsl.nodes.FunctionArgument;
 import org.jetbrains.research.libsl.nodes.Library;
+import org.jetbrains.research.libsl.nodes.references.TypeReference;
 import org.jetbrains.research.libsl.type.*;
 import org.springframework.stereotype.Service;
 
@@ -29,22 +32,11 @@ import java.util.stream.Stream;
 @Slf4j
 public class LibSLParserServiceImpl {
 
-    private static final String IN_PATH = "InPath";
+    private static final String PATH_PARAMETER = "PathParameter";
     private static final String PATH = "path";
-    private static final String IN_BODY = "InBody";
-
-    private enum MethodAnnotation {
-        GET, POST, PUT, DELETE;
-
-        public static boolean isMethodAnnotation(String value) {
-            for (MethodAnnotation methodAnnotation : MethodAnnotation.values()) {
-                if (methodAnnotation.name().equals(value)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-    }
+    private static final String REQUEST_BODY = "RequestBody";
+    private static final String PATH_DELIMITER = "/";
+    private static final String APPLICATION_JSON = "application/json";
 
     public Library parseLibSL(Path filePath) {
         Library library = new LibSL("", new LslGlobalContext("")).loadByPath(filePath);
@@ -71,7 +63,7 @@ public class LibSLParserServiceImpl {
     }
 
     private String generatePathName(Automaton automaton, Function function, PathItem pathItem) {
-        AtomicReference<String> pathName = new AtomicReference<>("/" + automaton.getName() + "/" + function.getName());
+        AtomicReference<String> pathName = new AtomicReference<>(PATH_DELIMITER + automaton.getName() + PATH_DELIMITER + function.getName());
         Stream.of(pathItem.getGet(), pathItem.getPost(), pathItem.getPut(), pathItem.getDelete())
                 .filter(Objects::nonNull)
                 .forEach(operation -> {
@@ -79,7 +71,7 @@ public class LibSLParserServiceImpl {
                         operation.getParameters().forEach(parameter -> {
                             // add path parameter to path name
                             if (parameter.getIn().equals(PATH)) {
-                                pathName.set(pathName + "/{" + parameter.getName() + "}");
+                                pathName.set(pathName + PATH_DELIMITER + "{" + parameter.getName() + "}");
                             }
                         });
                     }
@@ -98,41 +90,25 @@ public class LibSLParserServiceImpl {
             return null;
         }
 
-        PathItem pathItem = new PathItem();
-        Operation operation = new Operation();
 
-
-        int numberOfRequestBodies = (int) function.getArgs().stream().filter(arg -> arg.getAnnotationUsages().stream().anyMatch(a -> a.getAnnotationReference().getName().equals(IN_BODY))).count();
+        int numberOfRequestBodies = getNumberOfRequestBodies(function);
 
         if (numberOfRequestBodies > 1) {
             throw new IllegalStateException("Multiple request bodies are not supported");
         }
 
+        Operation operation = new Operation();
         function.getArgs().forEach(arg -> {
-            // add path parameter with @InPath annotation
-            if (arg.getAnnotationUsages().stream().anyMatch(a -> a.getAnnotationReference().getName().equals(IN_PATH))) {
-                Parameter p = new Parameter()
-                        .name(arg.getName())
-                        .in(PATH)
-                        .required(true)
-                        .schema(generateArgumentSchema(Objects.requireNonNull(arg.getTypeReference().resolve())));
-                operation.addParametersItem(p);
-            } else if (arg.getAnnotationUsages().stream().anyMatch(a -> a.getAnnotationReference().getName().equals(IN_BODY))) {
-                // add request body with @InBody annotation
-                operation.requestBody(new RequestBody().content(new Content().addMediaType("application/json", new MediaType().schema(generateArgumentSchema(Objects.requireNonNull(arg.getTypeReference().resolve()))))));
+            if (isArgumentWithAnnotation(arg, REQUEST_BODY)) {
+                operation.requestBody(generateRequestBody(arg));
+            } else if (isArgumentWithAnnotation(arg, PATH_PARAMETER)) {
+                operation.addParametersItem(generatePathParameter(arg));
             }
         });
 
-        ApiResponse response = new ApiResponse();
-        response.description("Successful operation");
+        generateResponses(function, operation);
 
-        if (function.getReturnType() != null) {
-            response.content(new Content().addMediaType("application/json", new MediaType().schema(generateArgumentSchema(Objects.requireNonNull(Objects.requireNonNull(function.getReturnType()).resolve())))));
-            response.description("Successful operation");
-        }
-
-        operation.responses(new ApiResponses().addApiResponse("200", response));
-
+        PathItem pathItem = new PathItem();
         switch (MethodAnnotation.valueOf(methodAnnotation.getAnnotationReference().getName())) {
             case GET -> pathItem.get(operation);
             case POST -> pathItem.post(operation);
@@ -143,6 +119,68 @@ public class LibSLParserServiceImpl {
         return pathItem;
     }
 
+    private void generateResponses(Function function, Operation operation) {
+        ApiResponse response = new ApiResponse();
+        response.description("Successful operation");
+
+        if (function.getReturnType() != null) {
+            addResponse(function, response);
+        }
+
+        operation.responses(new ApiResponses().addApiResponse("200", response));
+    }
+
+    private void addResponse(Function function, ApiResponse response) {
+        Content content = generateContentByTypeReference(Objects.requireNonNull(function.getReturnType()));
+
+        response.content(content);
+    }
+
+    private RequestBody generateRequestBody(FunctionArgument argument) {
+        Content content = generateContentByTypeReference(Objects.requireNonNull(argument.getTypeReference()));
+
+        RequestBody requestBody = new RequestBody();
+        requestBody.content(content);
+
+        return requestBody;
+    }
+
+    private Content generateContentByTypeReference(TypeReference typeReference) {
+        Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(typeReference.resolve()));
+
+        MediaType mediaType = new MediaType();
+        mediaType.schema(schema);
+
+        Content content = new Content();
+        content.addMediaType(APPLICATION_JSON, mediaType);
+
+        return content;
+    }
+
+    private Parameter generatePathParameter(FunctionArgument argument) {
+        return new Parameter()
+                .name(argument.getName())
+                .in(PATH)
+                .required(true)
+                .schema(generateArgumentSchema(Objects.requireNonNull(argument.getTypeReference().resolve())));
+    }
+
+    private static int getNumberOfRequestBodies(Function function) {
+        return (int) function.getArgs()
+                .stream()
+                .filter(arg ->
+                        arg.getAnnotationUsages()
+                                .stream()
+                                .anyMatch(a -> a.getAnnotationReference().getName().equals(REQUEST_BODY)))
+                .count();
+    }
+
+    private static boolean isArgumentWithAnnotation(FunctionArgument argument, String annotationName) {
+        return argument.getAnnotationUsages()
+                .stream()
+                .anyMatch(a -> a.getAnnotationReference().getName().equals(annotationName));
+    }
+
     private Schema<?> generateArgumentSchema(Type argumentType) {
 
         if (argumentType.isTopLevelType()) {
@@ -150,9 +188,6 @@ public class LibSLParserServiceImpl {
             if (argumentType instanceof StructuredType structuredType) {
                 structuredType.getVariables().forEach(variable -> {
                     Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(variable.getTypeReference().resolve()));
-                    if (schema != null) {
-                        schema.types(null);
-                    }
                     objectSchema.addProperty(variable.getName(), schema);
                 });
                 objectSchema.types(null);
@@ -161,9 +196,6 @@ public class LibSLParserServiceImpl {
         } else if (argumentType.isArray()) {
             if (argumentType instanceof ArrayType arrayType) {
                 Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(arrayType.getGenerics().getFirst().resolve()));
-                if (schema != null) {
-                    schema.types(null);
-                }
                 return new ArraySchema().items(schema);
             }
         } else {
@@ -177,7 +209,6 @@ public class LibSLParserServiceImpl {
                 case RealType realType -> {
                     Schema<?> schema = resolveTypeByStringName(realType.getFullName());
 
-                    // way around to remove types from schema - idk
                     schema.types(null);
                     return schema;
                 }
@@ -186,13 +217,10 @@ public class LibSLParserServiceImpl {
                         throw new IllegalStateException("Map type should have 2 generics");
                     }
 
-                    Schema<?> schema = new MapSchema();
-                    Schema<?> keySchema = generateArgumentSchema(Objects.requireNonNull(mapType.getGenerics().getFirst().resolve()));
-                    keySchema.types(null);
                     Schema<?> valueSchema = generateArgumentSchema(Objects.requireNonNull(mapType.getGenerics().getLast().resolve()));
                     valueSchema.types(null);
 
-                    schema.additionalProperties(keySchema);
+                    Schema<?> schema = new MapSchema();
                     schema.additionalProperties(valueSchema);
 
                     schema.types(null);

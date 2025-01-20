@@ -3,6 +3,7 @@ package com.nvp.orchestrator.service.impl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.reflections.Reflections;
+import org.reflections.scanners.Scanner;
 import org.reflections.scanners.Scanners;
 import org.reflections.util.ConfigurationBuilder;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,7 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -23,6 +25,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 @RequiredArgsConstructor
@@ -30,7 +33,6 @@ import java.util.stream.IntStream;
 public class ApiImplementationGenerator {
 
     private final Path generatedProjectPath;
-    private URLClassLoader urlClassLoader;
 
     /**
      * Генерация реализаций интерфейсов API.
@@ -49,13 +51,14 @@ public class ApiImplementationGenerator {
     }
 
     private Collection<Class<?>> getClassesFromPackage() throws MalformedURLException {
-        urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
+        URLClassLoader urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
         Path classesPath = generatedProjectPath.resolve("target/classes/org/openapitools/api");
         URL url = classesPath.toUri().toURL();
+        Scanner scanner = Scanners.SubTypes.filterResultsBy(s -> true);
         Reflections reflections = new Reflections(
                 new ConfigurationBuilder()
                         .setUrls(url)
-                        .setScanners(Scanners.SubTypes.filterResultsBy(s -> true))
+                        .setScanners(scanner)
                         .setClassLoaders(new URLClassLoader[]{urlClassLoader})
         );
         return reflections.getSubTypesOf(Object.class);
@@ -119,34 +122,51 @@ public class ApiImplementationGenerator {
             // Обработка примитивов и известных типов
             if (returnClass == int.class || returnClass == Integer.class) {
                 return CodeBlock.builder().add("new $T().nextInt()", Random.class).build();
-            } else if (returnClass == long.class || returnClass == Long.class) {
+            }
+
+            if (returnClass == long.class || returnClass == Long.class) {
                 return CodeBlock.builder().add("new $T().nextLong()", Random.class).build();
-            } else if (returnClass == double.class || returnClass == Double.class) {
+            }
+
+            if (returnClass == double.class || returnClass == Double.class) {
                 return CodeBlock.builder().add("new $T().nextDouble()", Random.class).build();
-            } else if (returnClass == boolean.class || returnClass == Boolean.class) {
+            }
+
+            if (returnClass == boolean.class || returnClass == Boolean.class) {
                 return CodeBlock.builder().add("new $T().nextBoolean()", Random.class).build();
-            } else if (returnClass == String.class) {
+            }
+
+            if (returnClass == String.class) {
                 return CodeBlock.builder().add("$S + new $T().nextInt()", "RandomString", Random.class).build();
-            } else if (List.of(LocalDate.class, LocalDateTime.class, ZonedDateTime.class, OffsetDateTime.class).contains(returnClass)) {
+            }
+
+            if (List.of(LocalDate.class, LocalDateTime.class, ZonedDateTime.class, OffsetDateTime.class).contains(returnClass)) {
                 return CodeBlock.builder().add("$T.now()", returnClass).build();
-            } else if (returnClass.isArray()) {
+            }
+
+            if (returnClass.isArray()) {
                 // Генерация пустого массива
                 return CodeBlock.builder()
-                        .add("$T.range(0, new $T().nextInt(10)).forEach(i -> names.add($L)).toList()", IntStream.class, Random.class, generateRandomValueCodeBlock(returnClass.getComponentType()))
+                        .add("$T.singletonList($L)", java.util.Collections.class, generateRandomValueCodeBlock(returnClass.getComponentType()))
                         .build();
-            } else if (returnClass.isPrimitive()) {
+            }
+
+            if (returnClass.isPrimitive()) {
                 return CodeBlock.builder().add("0").build(); // Значение по умолчанию для примитивов
-            } else if (returnClass.isEnum()) {
+            }
+
+            if (returnClass.isEnum()) {
                 Object[] enumConstants = returnClass.getEnumConstants();
-//                return enumConstants != null && enumConstants.length > 0
-//                        ? returnClass.getSimpleName() + "." + enumConstants[0]
-//                        : "null";
                 return CodeBlock.builder().add("$T.$L", returnClass, enumConstants[0].toString().toUpperCase()).build();
-            } else if (!returnClass.isInterface()) {
-                // Используем случайный конструктор
+            }
+
+            if (!returnClass.isInterface()) {
+                // Используем публичный конструктор с наибольшим количеством параметров
                 return CodeBlock.builder().add(generateRandomConstructorValue(returnClass)).build();
             }
-        } else if (returnType instanceof java.lang.reflect.ParameterizedType parameterizedType) {
+        }
+
+        if (returnType instanceof ParameterizedType parameterizedType) {
             Type rawType = parameterizedType.getRawType();
 
             // Обработка ResponseEntity
@@ -162,16 +182,21 @@ public class ApiImplementationGenerator {
             if (rawType == List.class || rawType == ArrayList.class) {
                 Type elementType = parameterizedType.getActualTypeArguments()[0];
                 return CodeBlock.builder().add("$T.singletonList($L)", java.util.Collections.class, generateRandomValueCodeBlock(elementType)).build();
-            } else if (rawType == Set.class || rawType == HashSet.class) {
+            }
+
+            if (rawType == Set.class || rawType == HashSet.class) {
                 Type elementType = parameterizedType.getActualTypeArguments()[0];
                 return CodeBlock.builder().add("$T.singleton($L)", java.util.Collections.class, generateRandomValueCodeBlock(elementType)).build();
-            } else if (rawType == Map.class || rawType == HashMap.class) {
+            }
+
+            if (rawType == Map.class || rawType == HashMap.class) {
                 Type keyType = parameterizedType.getActualTypeArguments()[0];
                 Type valueType = parameterizedType.getActualTypeArguments()[1];
                 return CodeBlock.builder().add("$T.singletonMap($L, $L)", java.util.Collections.class, generateRandomValueCodeBlock(keyType), generateRandomValueCodeBlock(valueType)).build();
             }
         }
 
+        log.warn("Не удалось сгенерировать значение для типа: {}", returnType);
         return CodeBlock.builder().add("null").build();
     }
 
@@ -193,14 +218,12 @@ public class ApiImplementationGenerator {
                         () -> new IllegalStateException("No public constructors found for class " + customClass.getName())
                 );
 
-        // Генерируем параметры для конструктора
-        StringBuilder constructorArgs = new StringBuilder();
-        for (Parameter parameter : randomConstructor.getParameters()) {
-            if (!constructorArgs.isEmpty()) {
-                constructorArgs.append(", ");
-            }
-            constructorArgs.append(generateRandomValueCodeBlock(parameter.getParameterizedType()));
-        }
+//        // Генерируем параметры для конструктора
+        String constructorArgs = Arrays.stream(randomConstructor.getParameters())
+                .map(Parameter::getParameterizedType)
+                .map(this::generateRandomValueCodeBlock)
+                .map(CodeBlock::toString)
+                .collect(Collectors.joining(", "));
 
         // Возвращаем строку для вызова конструктора
         return CodeBlock.builder().add("new $T($L)", customClass, constructorArgs).build();
