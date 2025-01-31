@@ -218,7 +218,7 @@ public class ApiImplementationGenerator {
                         () -> new IllegalStateException("No public constructors found for class " + customClass.getName())
                 );
 
-//        // Генерируем параметры для конструктора
+        // Генерируем параметры для конструктора
         String constructorArgs = Arrays.stream(randomConstructor.getParameters())
                 .map(Parameter::getParameterizedType)
                 .map(this::generateRandomValueCodeBlock)

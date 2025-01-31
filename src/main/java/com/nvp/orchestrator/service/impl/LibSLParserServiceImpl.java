@@ -196,7 +196,11 @@ public class LibSLParserServiceImpl {
         } else if (argumentType.isArray()) {
             if (argumentType instanceof ArrayType arrayType) {
                 Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(arrayType.getGenerics().getFirst().resolve()));
-                return new ArraySchema().items(schema);
+                schema.types(null);
+                ArraySchema arraySchema =  new ArraySchema();
+                arraySchema.items(schema);
+                arraySchema.types(null);
+                return arraySchema;
             }
         } else {
             switch (argumentType) {
