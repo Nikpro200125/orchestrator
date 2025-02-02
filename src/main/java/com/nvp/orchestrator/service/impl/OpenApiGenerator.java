@@ -25,7 +25,7 @@ public class OpenApiGenerator {
                         "useSpringBoot3=true," +
                         "java8=true," +
                         "skipDefaultInterface=true," +
-                        "additionalModelTypeAnnotations=\"@lombok.AllArgsConstructor\""
+                        "additionalModelTypeAnnotations=@lombok.AllArgsConstructor@lombok.NoArgsConstructor"
         );
         pb.inheritIO(); // Отображаем процесс в консоли для отладки
         Process process = pb.start();

@@ -3,33 +3,36 @@ package com.nvp.orchestrator.service.impl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.reflections.Reflections;
+import org.reflections.scanners.Scanner;
 import org.reflections.scanners.Scanners;
 import org.reflections.util.ConfigurationBuilder;
 import org.springframework.http.ResponseEntity;
-import org.springframework.javapoet.JavaFile;
-import org.springframework.javapoet.MethodSpec;
-import org.springframework.javapoet.TypeName;
-import org.springframework.javapoet.TypeSpec;
+import org.springframework.javapoet.*;
 
 import javax.lang.model.element.Modifier;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @RequiredArgsConstructor
 @Slf4j
 public class ApiImplementationGenerator {
 
     private final Path generatedProjectPath;
-    private final Random random = new Random();
-    private URLClassLoader urlClassLoader;
 
     /**
      * Генерация реализаций интерфейсов API.
@@ -48,13 +51,14 @@ public class ApiImplementationGenerator {
     }
 
     private Collection<Class<?>> getClassesFromPackage() throws MalformedURLException {
-        urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
+        URLClassLoader urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
         Path classesPath = generatedProjectPath.resolve("target/classes/org/openapitools/api");
         URL url = classesPath.toUri().toURL();
+        Scanner scanner = Scanners.SubTypes.filterResultsBy(s -> true);
         Reflections reflections = new Reflections(
                 new ConfigurationBuilder()
                         .setUrls(url)
-                        .setScanners(Scanners.SubTypes.filterResultsBy(s -> true))
+                        .setScanners(scanner)
                         .setClassLoaders(new URLClassLoader[]{urlClassLoader})
         );
         return reflections.getSubTypesOf(Object.class);
@@ -107,93 +111,122 @@ public class ApiImplementationGenerator {
         methodBuilder.returns(returnTypeName);
 
         // Добавляем заглушку для возвращаемого значения
-        methodBuilder.addStatement("return $L", generateRandomValue(returnType));
+        methodBuilder.addStatement("return $L", generateRandomValueCodeBlock(returnType));
 
         return methodBuilder.build();
     }
 
     // Генерация случайных данных по типу
-
-    private String generateRandomValue(Type returnType) {
+    private CodeBlock generateRandomValueCodeBlock(Type returnType) {
         if (returnType instanceof Class<?> returnClass) {
             // Обработка примитивов и известных типов
             if (returnClass == int.class || returnClass == Integer.class) {
-                return random.nextInt(100) + "";
-            } else if (returnClass == long.class || returnClass == Long.class) {
-                return random.nextLong() + "L";
-            } else if (returnClass == double.class || returnClass == Double.class) {
-                return random.nextDouble() + "D";
-            } else if (returnClass == boolean.class || returnClass == Boolean.class) {
-                return random.nextBoolean() + "";
-            } else if (returnClass == String.class) {
-                return "\"" + "RandomString" + random.nextInt(100) + "\"";
-            } else if (returnClass.isArray()) {
-                // Генерация пустого массива
-                return "new " + returnClass.getComponentType().getSimpleName() + "[0]";
-            } else if (returnClass.isPrimitive()) {
-                return "0"; // Значение по умолчанию для примитивов
-            } else if (returnClass.isEnum()) {
-                Object[] enumConstants = returnClass.getEnumConstants();
-                return enumConstants != null && enumConstants.length > 0
-                        ? returnClass.getSimpleName() + "." + enumConstants[0]
-                        : "null";
-            } else if (!returnClass.isInterface()) {
-                // Используем случайный конструктор
-                return generateRandomConstructorValue(returnClass);
+                return CodeBlock.builder().add("new $T().nextInt()", Random.class).build();
             }
-        } else if (returnType instanceof java.lang.reflect.ParameterizedType parameterizedType) {
+
+            if (returnClass == long.class || returnClass == Long.class) {
+                return CodeBlock.builder().add("new $T().nextLong()", Random.class).build();
+            }
+
+            if (returnClass == double.class || returnClass == Double.class) {
+                return CodeBlock.builder().add("new $T().nextDouble()", Random.class).build();
+            }
+
+            if (returnClass == boolean.class || returnClass == Boolean.class) {
+                return CodeBlock.builder().add("new $T().nextBoolean()", Random.class).build();
+            }
+
+            if (returnClass == String.class) {
+                return CodeBlock.builder().add("$S + new $T().nextInt()", "RandomString", Random.class).build();
+            }
+
+            if (List.of(LocalDate.class, LocalDateTime.class, ZonedDateTime.class, OffsetDateTime.class).contains(returnClass)) {
+                return CodeBlock.builder().add("$T.now()", returnClass).build();
+            }
+
+            if (returnClass.isArray()) {
+                // Генерация пустого массива
+                return CodeBlock.builder()
+                        .add("$T.singletonList($L)", java.util.Collections.class, generateRandomValueCodeBlock(returnClass.getComponentType()))
+                        .build();
+            }
+
+            if (returnClass.isPrimitive()) {
+                return CodeBlock.builder().add("0").build(); // Значение по умолчанию для примитивов
+            }
+
+            if (returnClass.isEnum()) {
+                Object[] enumConstants = returnClass.getEnumConstants();
+                return CodeBlock.builder().add("$T.$L", returnClass, enumConstants[0].toString().toUpperCase()).build();
+            }
+
+            if (!returnClass.isInterface()) {
+                // Используем публичный конструктор с наибольшим количеством параметров
+                return CodeBlock.builder().add(generateRandomConstructorValue(returnClass)).build();
+            }
+        }
+
+        if (returnType instanceof ParameterizedType parameterizedType) {
             Type rawType = parameterizedType.getRawType();
 
             // Обработка ResponseEntity
             if (rawType == ResponseEntity.class) {
                 Type responseType = parameterizedType.getActualTypeArguments()[0];
                 if (responseType == Void.class) {
-                    return "org.springframework.http.ResponseEntity.ok().build()";
+                    return CodeBlock.builder().add("$T.ok().build()", org.springframework.http.ResponseEntity.class).build();
                 }
-                return "org.springframework.http.ResponseEntity.ok(" + generateRandomValue(responseType) + ")";
+                return CodeBlock.builder().add("$T.ok($L)", org.springframework.http.ResponseEntity.class, generateRandomValueCodeBlock(responseType)).build();
             }
 
             // Обработка коллекций и карт
             if (rawType == List.class || rawType == ArrayList.class) {
                 Type elementType = parameterizedType.getActualTypeArguments()[0];
-                return "java.util.Collections.singletonList(" + generateRandomValue(elementType) + ")";
-            } else if (rawType == Set.class || rawType == HashSet.class) {
+                return CodeBlock.builder().add("$T.singletonList($L)", java.util.Collections.class, generateRandomValueCodeBlock(elementType)).build();
+            }
+
+            if (rawType == Set.class || rawType == HashSet.class) {
                 Type elementType = parameterizedType.getActualTypeArguments()[0];
-                return "java.util.Collections.singleton(" + generateRandomValue(elementType) + ")";
-            } else if (rawType == Map.class || rawType == HashMap.class) {
+                return CodeBlock.builder().add("$T.singleton($L)", java.util.Collections.class, generateRandomValueCodeBlock(elementType)).build();
+            }
+
+            if (rawType == Map.class || rawType == HashMap.class) {
                 Type keyType = parameterizedType.getActualTypeArguments()[0];
                 Type valueType = parameterizedType.getActualTypeArguments()[1];
-                return "java.util.Collections.singletonMap(" + generateRandomValue(keyType) + ", " + generateRandomValue(valueType) + ")";
+                return CodeBlock.builder().add("$T.singletonMap($L, $L)", java.util.Collections.class, generateRandomValueCodeBlock(keyType), generateRandomValueCodeBlock(valueType)).build();
             }
         }
 
-        return "null"; // Если тип не поддерживается
+        log.warn("Не удалось сгенерировать значение для типа: {}", returnType);
+        return CodeBlock.builder().add("null").build();
     }
 
     // Генерация значения с использованием случайного конструктора
-    private String generateRandomConstructorValue(Class<?> customClass) {
+    private CodeBlock generateRandomConstructorValue(Class<?> customClass) {
         Constructor<?>[] constructors = customClass.getDeclaredConstructors();
 
         // Фильтруем только доступные конструкторы
         List<Constructor<?>> accessibleConstructors = new ArrayList<>(Arrays.asList(constructors));
 
         if (accessibleConstructors.isEmpty()) {
-            return "null"; // Если нет доступных конструкторов
+            return CodeBlock.builder().add("null").build();
         }
 
-        // Выбираем случайный конструктор с максимальным количеством параметров
-        Constructor<?> randomConstructor = accessibleConstructors.stream().max(Comparator.comparingInt(Constructor::getParameterCount)).get();
+        // Выбираем случайный конструктор с максимальным количеством параметров для public конструкторов
+        Constructor<?> randomConstructor = accessibleConstructors.stream()
+                .filter(constructor -> java.lang.reflect.Modifier.isPublic(constructor.getModifiers()))
+                .max(Comparator.comparingInt(Constructor::getParameterCount)).orElseThrow(
+                        () -> new IllegalStateException("No public constructors found for class " + customClass.getName())
+                );
+
         // Генерируем параметры для конструктора
-        StringBuilder constructorArgs = new StringBuilder();
-        for (Parameter parameter : randomConstructor.getParameters()) {
-            if (!constructorArgs.isEmpty()) {
-                constructorArgs.append(", ");
-            }
-            constructorArgs.append(generateRandomValue(parameter.getParameterizedType()));
-        }
+        String constructorArgs = Arrays.stream(randomConstructor.getParameters())
+                .map(Parameter::getParameterizedType)
+                .map(this::generateRandomValueCodeBlock)
+                .map(CodeBlock::toString)
+                .collect(Collectors.joining(", "));
 
         // Возвращаем строку для вызова конструктора
-        return "new " + customClass.getSimpleName() + "(" + constructorArgs + ")";
+        return CodeBlock.builder().add("new $T($L)", customClass, constructorArgs).build();
     }
 
 }
