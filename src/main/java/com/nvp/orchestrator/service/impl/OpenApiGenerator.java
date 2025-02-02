@@ -1,9 +1,12 @@
 package com.nvp.orchestrator.service.impl;
 
+import com.nvp.orchestrator.service.exceptions.OpenApiGenerationException;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Path;
 
 @Slf4j
@@ -27,11 +30,22 @@ public class OpenApiGenerator {
                         "skipDefaultInterface=true," +
                         "additionalModelTypeAnnotations=@lombok.AllArgsConstructor@lombok.NoArgsConstructor"
         );
-        pb.inheritIO(); // Отображаем процесс в консоли для отладки
         Process process = pb.start();
+        StringBuilder processLog = new StringBuilder();
+
+
+        // Считываем вывод процесса
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                processLog.append(line);
+                log.debug(line);
+            }
+        }
+
         int exitCode = process.waitFor();
         if (exitCode != 0) {
-            throw new RuntimeException("Failed to generate service. Exit code: " + exitCode);
+            throw new OpenApiGenerationException("Failed to generate service. \n" + processLog);
         }
         log.info("Service generated successfully at: {}", tempDir.toAbsolutePath());
     }

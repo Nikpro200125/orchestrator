@@ -1,6 +1,8 @@
 package com.nvp.orchestrator.service.impl;
 
+import com.nvp.orchestrator.logs.OutputRedirect;
 import com.nvp.orchestrator.service.enums.MethodAnnotation;
+import com.nvp.orchestrator.service.exceptions.LibSLParsingException;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
@@ -11,6 +13,7 @@ import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.parameters.RequestBody;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.research.libsl.LibSL;
 import org.jetbrains.research.libsl.context.LslGlobalContext;
@@ -24,13 +27,17 @@ import org.jetbrains.research.libsl.type.*;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class LibSLParserServiceImpl {
+
+    private final OutputRedirect outputRedirect;
 
     private static final String PATH_PARAMETER = "PathParameter";
     private static final String PATH = "path";
@@ -40,6 +47,12 @@ public class LibSLParserServiceImpl {
 
     public Library parseLibSL(Path filePath) {
         Library library = new LibSL("", new LslGlobalContext("")).loadByPath(filePath);
+
+        List<String> capturedOutput = outputRedirect.getCapturingErr().getCapturedOutput();
+        if (!capturedOutput.isEmpty()) {
+            throw new LibSLParsingException("Failed to parse LibSL file:\n" + capturedOutput);
+        }
+
         log.debug("Library: {}", library);
         return library;
     }

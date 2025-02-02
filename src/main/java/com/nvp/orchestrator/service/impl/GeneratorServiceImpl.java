@@ -24,6 +24,8 @@ import java.nio.file.StandardCopyOption;
 public class GeneratorServiceImpl implements GeneratorService {
 
     private final LibSLParserServiceImpl libSLParserService;
+    private static final String RESOURCE_ROOT_DIR = "src/main/resources/templates/root";
+    private static final String PROJECT_ROOT_DIR = "src/main/java/org/openapitools";
 
     private Path generateWorkingDirectory() {
         try {
@@ -34,12 +36,20 @@ public class GeneratorServiceImpl implements GeneratorService {
         }
     }
 
-    private void copyApplicationJava(Path tempDir) throws IOException {
-        Path existingApplicationJavaPath = Path.of("src/main/resources/templates/Application.java");
-        Path applicationJavaPath = tempDir.resolve("src/main/java/org/openapitools/Application.java");
-        Files.createDirectories(applicationJavaPath.getParent());
-        Files.copy(existingApplicationJavaPath, applicationJavaPath, StandardCopyOption.REPLACE_EXISTING);
-        log.info("Application.java copied to {}", applicationJavaPath);
+    private void copyFilesToProjectRoot(Path tempDir) throws IOException {
+        Files.walk(Path.of(RESOURCE_ROOT_DIR))
+                .filter(Files::isRegularFile)
+                .forEach(file -> {
+                    try {
+                        Path relativePath = Path.of(RESOURCE_ROOT_DIR).relativize(file);
+                        Path targetPath = tempDir.resolve(PROJECT_ROOT_DIR).resolve(relativePath);
+                        Files.createDirectories(targetPath.getParent());
+                        Files.copy(file, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                        log.info("File copied to {}", targetPath);
+                    } catch (IOException e) {
+                        log.error("Failed to copy file", e);
+                    }
+                });
     }
 
     private void updatePomXML(Path tempDir) throws IOException {
@@ -66,28 +76,22 @@ public class GeneratorServiceImpl implements GeneratorService {
         Path openapiSpecPath = tempDir.resolve("openapi.yaml");
         Files.copy(openapiFile.getInputStream(), openapiSpecPath, StandardCopyOption.REPLACE_EXISTING);
 
-        return generateServiceFromOpenApi(tempDir, openapiSpecPath);
+        return generateServiceFromOpenApi(tempDir, openapiSpecPath, null);
     }
 
     @NotNull
-    private String generateServiceFromOpenApi(Path tempDir, Path openapiSpecPath) throws IOException, InterruptedException {
+    private String generateServiceFromOpenApi(Path tempDir, Path openapiSpecPath, Library library) throws IOException, InterruptedException {
         try {
             OpenApiGenerator.generateSpringService(tempDir, openapiSpecPath);
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate service", e);
         }
 
-        copyApplicationJava(tempDir);
+        copyFilesToProjectRoot(tempDir);
         updatePomXML(tempDir);
         MavenTools.compileGenerated(tempDir);
 
-        ApiImplementationGenerator apiImplementationGenerator =
-                new ApiImplementationGenerator(tempDir);
-        try {
-            apiImplementationGenerator.generate();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to generate API implementations", e);
-        }
+        generateApi(tempDir, library);
 
         MavenTools.generateJar(tempDir);
         Thread.sleep(1000); // Ждём, пока Maven закончит работу
@@ -99,6 +103,15 @@ public class GeneratorServiceImpl implements GeneratorService {
         return DockerTools.getUrl(name);
     }
 
+    private static void generateApi(Path tempDir, Library library) {
+        ApiImplementationGenerator apiImplementationGenerator = new ApiImplementationGenerator(tempDir);
+        try {
+            apiImplementationGenerator.generate(library);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate API implementations", e);
+        }
+    }
+
     @Override
     public String generateLibSL(MultipartFile libSLFile) throws IOException, InterruptedException {
         if (libSLFile.isEmpty()) {
@@ -107,26 +120,22 @@ public class GeneratorServiceImpl implements GeneratorService {
 
         Path tempDir = generateWorkingDirectory();
         Path openApiSpecPath;
+        Library lib;
 
-        try {
-            Path file = tempDir.resolve("libsl_" + System.currentTimeMillis() + ".lsl");
-            Files.copy(libSLFile.getInputStream(), file, StandardCopyOption.REPLACE_EXISTING);
-            Library lib = libSLParserService.parseLibSL(file);
-            OpenAPI openApiSpec = libSLParserService.generateOpenAPI(lib);
-            ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+        Path file = tempDir.resolve("libsl_" + System.currentTimeMillis() + ".lsl");
+        Files.copy(libSLFile.getInputStream(), file, StandardCopyOption.REPLACE_EXISTING);
+        lib = libSLParserService.parseLibSL(file);
+        OpenAPI openApiSpec = libSLParserService.generateOpenAPI(lib);
+        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
 
-            mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
-            mapper.setSerializationInclusion(JsonInclude.Include.NON_DEFAULT);
+        mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+        mapper.setSerializationInclusion(JsonInclude.Include.NON_DEFAULT);
 
-            openApiSpecPath = tempDir.resolve("openApiSpec_" + System.currentTimeMillis() + ".yaml");
-            File oasFile = openApiSpecPath.toFile();
-            mapper.writeValue(oasFile, openApiSpec);
-            log.info("OpenAPI spec generated successfully, saved to file: {}", oasFile.getPath());
+        openApiSpecPath = tempDir.resolve("openApiSpec_" + System.currentTimeMillis() + ".yaml");
+        File oasFile = openApiSpecPath.toFile();
+        mapper.writeValue(oasFile, openApiSpec);
+        log.info("OpenAPI spec generated successfully, saved to file: {}", oasFile.getPath());
 
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to save file", e);
-        }
-
-        return generateServiceFromOpenApi(tempDir, openApiSpecPath);
+        return generateServiceFromOpenApi(tempDir, openApiSpecPath, lib);
     }
 }

@@ -1,5 +1,6 @@
 package com.nvp.orchestrator.service.impl;
 
+import com.nvp.orchestrator.service.exceptions.ProjectCompilationException;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
@@ -18,6 +19,7 @@ public class MavenTools {
         ProcessBuilder pb = new ProcessBuilder(Path.of("src/main/resources/maven/bin/mvn.cmd").toAbsolutePath().toString(), "compile");
         pb.directory(tempDir.toFile()); // устанавливаем рабочую директорию
         pb.redirectErrorStream(true); // перенаправляем stderr в stdout для удобства
+        StringBuilder processLog = new StringBuilder();
 
         try {
             Process process = pb.start();
@@ -25,7 +27,8 @@ public class MavenTools {
             // Считываем вывод процесса
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
-                while((line = reader.readLine()) != null) {
+                while ((line = reader.readLine()) != null) {
+                    processLog.append(line);
                     log.debug(line);
                 }
             }
@@ -35,7 +38,7 @@ public class MavenTools {
                 log.info("Проект успешно скомпилирован!");
             } else {
                 log.error("Failed to compile project");
-                throw new RuntimeException("Failed to compile project");
+                throw new ProjectCompilationException("Failed to compile project with interfaces.\n" + processLog);
             }
 
         } catch (IOException | InterruptedException e) {
@@ -49,6 +52,7 @@ public class MavenTools {
         ProcessBuilder pb = new ProcessBuilder(Path.of("src/main/resources/maven/bin/mvn.cmd").toAbsolutePath().toString(), "package");
         pb.directory(tempDir.toFile()); // устанавливаем рабочую директорию
         pb.redirectErrorStream(true); // перенаправляем stderr в stdout для удобства
+        StringBuilder processLog = new StringBuilder();
 
         try {
             Process process = pb.start();
@@ -56,7 +60,8 @@ public class MavenTools {
             // Считываем вывод процесса
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
-                while((line = reader.readLine()) != null) {
+                while ((line = reader.readLine()) != null) {
+                    processLog.append(line);
                     log.debug(line);
                 }
             }
@@ -65,8 +70,8 @@ public class MavenTools {
             if (exitCode == 0) {
                 log.info("Проект успешно собран!");
             } else {
-                log.error("Failed to generate JAR");
-                throw new RuntimeException("Failed to generate JAR");
+                log.error("Failed to generate JAR with implementation");
+                throw new RuntimeException("Failed to generate JAR with implementation.\n" + processLog);
             }
 
         } catch (IOException | InterruptedException e) {

@@ -2,6 +2,9 @@ package com.nvp.orchestrator.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.research.libsl.nodes.*;
 import org.reflections.Reflections;
 import org.reflections.scanners.Scanner;
 import org.reflections.scanners.Scanners;
@@ -26,7 +29,6 @@ import java.time.OffsetDateTime;
 import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 @RequiredArgsConstructor
 @Slf4j
@@ -37,14 +39,13 @@ public class ApiImplementationGenerator {
     /**
      * Генерация реализаций интерфейсов API.
      */
-    public void generate() throws IOException {
-
+    public void generate(Library library) throws IOException {
         // Получаем все классы из пакета org.openapitools.api
         Collection<Class<?>> apiClasses = getClassesFromPackage();
         // Ищем интерфейсы
         for (Class<?> apiInterface : apiClasses) {
             if (apiInterface.isInterface() && apiInterface.getSimpleName().endsWith("Api")) {
-                generateImplementationForInterface(apiInterface);
+                generateImplementationForInterface(apiInterface, library);
             }
         }
 
@@ -67,7 +68,7 @@ public class ApiImplementationGenerator {
     /**
      * Генерация реализации для интерфейса API.
      */
-    private void generateImplementationForInterface(Class<?> apiInterface) throws IOException {
+    private void generateImplementationForInterface(Class<?> apiInterface, Library library) throws IOException {
         String implClassName = apiInterface.getSimpleName().replaceAll("Api$", "ApiController");
         String packageName = apiInterface.getPackage().getName();
 
@@ -78,7 +79,7 @@ public class ApiImplementationGenerator {
 
         // Генерируем методы интерфейса
         for (Method method : apiInterface.getMethods()) {
-            classBuilder.addMethod(generateMethodStub(method));
+            classBuilder.addMethod(generateMethodStub(getApiInterfaceName(apiInterface), method, library));
         }
 
         // Создаём файл Java
@@ -92,28 +93,88 @@ public class ApiImplementationGenerator {
         log.info("Сгенерирован класс: {}", implClassName);
     }
 
+    @NotNull
+    private static String getApiInterfaceName(Class<?> apiInterface) {
+        return apiInterface.getSimpleName().substring(0, apiInterface.getSimpleName().length() - 3);
+    }
+
     /**
      * Генерация заглушки для метода.
      */
-    private MethodSpec generateMethodStub(Method interfaceMethod) {
-        MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder(interfaceMethod.getName())
+    private MethodSpec generateMethodStub(String interfaceName, Method method, Library library) {
+        MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder(method.getName())
                 .addModifiers(Modifier.PUBLIC)
                 .addAnnotation(Override.class);
 
         // Добавляем параметры метода
-        for (Parameter parameter : interfaceMethod.getParameters()) {
+        for (Parameter parameter : method.getParameters()) {
             methodBuilder.addParameter(TypeName.get(parameter.getParameterizedType()), parameter.getName());
         }
 
         // Указываем возвращаемый тип метода
-        Type returnType = interfaceMethod.getGenericReturnType();
+        Type returnType = method.getGenericReturnType();
         TypeName returnTypeName = TypeName.get(returnType);
         methodBuilder.returns(returnTypeName);
+
+        // if have contracts use them to generate method body
+        if (library != null) {
+            Automaton automaton = getAutomaton(interfaceName, library);
+            if (automaton != null) {
+                Function function = getFunction(method, automaton);
+                if (function != null) {
+                    List<Contract> contracts = function.getContracts();
+                    if (!contracts.isEmpty()) {
+                        List<Contract> requires = getContractList(contracts, ContractKind.REQUIRES);
+                        List<Contract> ensures = getContractList(contracts, ContractKind.ENSURES);
+                        return generateMethodStatementFromContracts(methodBuilder, returnType, requires, ensures);
+                    }
+                }
+            }
+        }
 
         // Добавляем заглушку для возвращаемого значения
         methodBuilder.addStatement("return $L", generateRandomValueCodeBlock(returnType));
 
         return methodBuilder.build();
+    }
+
+    @NotNull
+    private static List<Contract> getContractList(List<Contract> contracts, ContractKind requires) {
+        return contracts.stream().filter(c -> c.getKind().equals(requires)).toList();
+    }
+
+    @Nullable
+    private static Function getFunction(Method method, Automaton automaton) {
+        return automaton.getFunctions().stream().filter(f -> method.getName().toLowerCase().contains(f.getName().toLowerCase())).findFirst().orElse(null);
+    }
+
+    @Nullable
+    private static Automaton getAutomaton(String interfaceName, Library library) {
+        return library.getAutomata().stream().filter(a -> a.getName().equals(interfaceName)).findFirst().orElse(null);
+    }
+
+    private MethodSpec generateMethodStatementFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures) {
+        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+        codeBlockBuilder.beginControlFlow("if (!($L))", generateRequiresContractsIfStatement(requires));
+        codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition failed");
+        codeBlockBuilder.endControlFlow();
+        codeBlockBuilder.addStatement("return $L", generateRandomValueCodeBlock(returnType));
+        return methodBuilder.addCode(codeBlockBuilder.build()).build();
+    }
+
+    private static CodeBlock generateRequiresContractsIfStatement(List<Contract> requires) {
+        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+        for (int i = 0; i < requires.size(); i++) {
+            codeBlockBuilder.add("($L)", generateRequiresContractCodeBlock(requires.get(i)));
+            if (i < requires.size() - 1) {
+                codeBlockBuilder.add(" && ");
+            }
+        }
+        return codeBlockBuilder.build();
+    }
+
+    private static String generateRequiresContractCodeBlock(Contract contract) {
+        return contract.getExpression().dumpToString();
     }
 
     // Генерация случайных данных по типу
