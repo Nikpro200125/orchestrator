@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.nvp.orchestrator.service.GeneratorService;
+import com.nvp.orchestrator.service.exceptions.GenerationServiceException;
 import io.swagger.v3.oas.models.OpenAPI;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,44 +33,59 @@ public class GeneratorServiceImpl implements GeneratorService {
             return Files.createTempDirectory("generated-service-" + System.currentTimeMillis());
         } catch (Exception e) {
             log.error("Failed to create working directory", e);
-            throw new RuntimeException("Failed to create working directory", e);
+            throw new GenerationServiceException("Failed to create working directory");
         }
     }
 
-    private void copyFilesToProjectRoot(Path tempDir) throws IOException {
-        Files.walk(Path.of(RESOURCE_ROOT_DIR))
-                .filter(Files::isRegularFile)
-                .forEach(file -> {
-                    try {
-                        Path relativePath = Path.of(RESOURCE_ROOT_DIR).relativize(file);
-                        Path targetPath = tempDir.resolve(PROJECT_ROOT_DIR).resolve(relativePath);
-                        Files.createDirectories(targetPath.getParent());
-                        Files.copy(file, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                        log.info("File copied to {}", targetPath);
-                    } catch (IOException e) {
-                        log.error("Failed to copy file", e);
-                    }
-                });
+    private void copyFilesToProjectRoot(Path tempDir) {
+        try {
+            Files.walk(Path.of(RESOURCE_ROOT_DIR))
+                    .filter(Files::isRegularFile)
+                    .forEach(file -> {
+                        try {
+                            Path relativePath = Path.of(RESOURCE_ROOT_DIR).relativize(file);
+                            Path targetPath = tempDir.resolve(PROJECT_ROOT_DIR).resolve(relativePath);
+                            Files.createDirectories(targetPath.getParent());
+                            Files.copy(file, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                            log.info("File copied to {}", targetPath);
+                        } catch (IOException e) {
+                            log.error("Failed to copy file", e);
+                        }
+                    });
+        } catch (IOException e) {
+            log.error("Failed to copy files to project root", e);
+            throw new GenerationServiceException("Failed to copy files to project root");
+        }
     }
 
-    private void updatePomXML(Path tempDir) throws IOException {
-        Path existingPomXMLPath = Path.of("src/main/resources/templates/pom.xml");
-        Path pomXMLPath = tempDir.resolve("pom.xml");
-        Files.copy(existingPomXMLPath, pomXMLPath, StandardCopyOption.REPLACE_EXISTING);
-        log.info("pom.xml copied to {}", pomXMLPath);
+    private void updatePomXML(Path tempDir) {
+        try {
+            Path existingPomXMLPath = Path.of("src/main/resources/templates/pom.xml");
+            Path pomXMLPath = tempDir.resolve("pom.xml");
+            Files.copy(existingPomXMLPath, pomXMLPath, StandardCopyOption.REPLACE_EXISTING);
+            log.info("pom.xml copied to {}", pomXMLPath);
+        } catch (Exception e) {
+            log.error("Failed to copy pom.xml", e);
+            throw new GenerationServiceException("Failed to copy pom.xml");
+        }
     }
 
-    private void copyDockerfile(Path tempDir) throws IOException {
-        Path existingDockerfile = Path.of("src/main/resources/templates/Dockerfile");
-        Path dockerfilePath = tempDir.resolve("Dockerfile");
-        Files.copy(existingDockerfile, dockerfilePath, StandardCopyOption.REPLACE_EXISTING);
-        log.info("Dockerfile copied to {}", dockerfilePath);
+    private void copyDockerfile(Path tempDir) {
+        try {
+            Path existingDockerfile = Path.of("src/main/resources/templates/Dockerfile");
+            Path dockerfilePath = tempDir.resolve("Dockerfile");
+            Files.copy(existingDockerfile, dockerfilePath, StandardCopyOption.REPLACE_EXISTING);
+            log.info("Dockerfile copied to {}", dockerfilePath);
+        } catch (Exception e) {
+            log.error("Failed to copy Dockerfile", e);
+            throw new GenerationServiceException("Failed to copy Dockerfile");
+        }
     }
 
     @Override
     public String generate(MultipartFile openapiFile) throws Exception {
         if (openapiFile.isEmpty()) {
-            throw new IllegalArgumentException("OpenAPI spec file is empty");
+            throw new GenerationServiceException("OpenAPI spec file is empty");
         }
 
         Path tempDir = generateWorkingDirectory();
@@ -84,7 +100,8 @@ public class GeneratorServiceImpl implements GeneratorService {
         try {
             OpenApiGenerator.generateSpringService(tempDir, openapiSpecPath);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to generate service", e);
+            log.error("Failed to generate service", e);
+            throw new GenerationServiceException("Failed to generate service");
         }
 
         copyFilesToProjectRoot(tempDir);
@@ -108,14 +125,15 @@ public class GeneratorServiceImpl implements GeneratorService {
         try {
             apiImplementationGenerator.generate(library);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to generate API implementations", e);
+            log.error("Failed to generate API implementations", e);
+            throw new GenerationServiceException("Failed to generate API implementations");
         }
     }
 
     @Override
     public String generateLibSL(MultipartFile libSLFile) throws IOException, InterruptedException {
         if (libSLFile.isEmpty()) {
-            throw new IllegalArgumentException("LibSL spec file is empty");
+            throw new GenerationServiceException("LibSL spec file is empty");
         }
 
         Path tempDir = generateWorkingDirectory();

@@ -107,7 +107,7 @@ public class LibSLParserServiceImpl {
         int numberOfRequestBodies = getNumberOfRequestBodies(function);
 
         if (numberOfRequestBodies > 1) {
-            throw new IllegalStateException("Multiple request bodies are not supported");
+            throw new LibSLParsingException("Multiple request bodies are not supported");
         }
 
         Operation operation = new Operation();
@@ -231,7 +231,7 @@ public class LibSLParserServiceImpl {
                 }
                 case MapType mapType -> {
                     if (mapType.getGenerics().size() != 2) {
-                        throw new IllegalStateException("Map type should have 2 generics");
+                        throw new LibSLParsingException("Map type should have 2 generics");
                     }
 
                     Schema<?> valueSchema = generateArgumentSchema(Objects.requireNonNull(mapType.getGenerics().getLast().resolve()));
@@ -248,7 +248,7 @@ public class LibSLParserServiceImpl {
             }
         }
 
-        throw new IllegalStateException("Unexpected value: " + argumentType);
+        throw new LibSLParsingException("Unexpected value: " + argumentType);
     }
 
     private static Schema<?> resolveTypeByStringName(String typeName) {
@@ -259,7 +259,7 @@ public class LibSLParserServiceImpl {
             case "double" -> new NumberSchema().format("double");
             case "boolean", "Boolean" -> new BooleanSchema();
             case "string" -> new StringSchema();
-            default -> throw new IllegalStateException("Unexpected value: " + typeName);
+            default -> throw new LibSLParsingException("Unexpected value: " + typeName);
         };
     }
 }

@@ -1,5 +1,6 @@
 package com.nvp.orchestrator.service.impl;
 
+import com.nvp.orchestrator.service.exceptions.DockerException;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
@@ -18,6 +19,7 @@ public class DockerTools {
         ProcessBuilder pb = new ProcessBuilder("docker", "build", "-t", name, ".");
         pb.directory(tempDir.toFile()); // устанавливаем рабочую директорию
         pb.redirectErrorStream(true); // перенаправляем stderr в stdout для удобства
+        StringBuilder processLog = new StringBuilder();
 
         try {
             Process process = pb.start();
@@ -26,6 +28,7 @@ public class DockerTools {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    processLog.append(line);
                     log.debug(line);
                 }
             }
@@ -40,6 +43,7 @@ public class DockerTools {
 
         } catch (IOException | InterruptedException e) {
             log.error("Failed to build project", e);
+            throw new DockerException("Failed to build project.\n" + processLog);
         }
         return name;
     }
@@ -47,6 +51,7 @@ public class DockerTools {
     public static void start(String name) {
         ProcessBuilder pb = new ProcessBuilder("docker", "run", "-p", ":8080", "-d", name);
         pb.redirectErrorStream(true); // перенаправляем stderr в stdout для удобства
+        StringBuilder processLog = new StringBuilder();
 
         try {
             Process process = pb.start();
@@ -55,6 +60,7 @@ public class DockerTools {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    processLog.append(line);
                     log.debug(line);
                 }
             }
@@ -68,6 +74,7 @@ public class DockerTools {
 
         } catch (IOException | InterruptedException e) {
             log.error("Failed to start project", e);
+            throw new DockerException("Failed to start project.\n" + processLog);
         }
     }
 
@@ -75,6 +82,7 @@ public class DockerTools {
     public static String getUrl(String ImageName) {
         ProcessBuilder pb = new ProcessBuilder("docker", "ps", "--filter", "\"ancestor=" + ImageName + "\"", "--format", "\"{{.Names}} - {{.Ports}}\"");
         pb.redirectErrorStream(true); // перенаправляем stderr в stdout для удобства
+        StringBuilder processLog = new StringBuilder();
 
         StringBuilder result = new StringBuilder();
         try {
@@ -84,6 +92,7 @@ public class DockerTools {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    processLog.append(line);
                     result.append(line).append("\n");
                 }
             }
@@ -95,6 +104,7 @@ public class DockerTools {
 
         } catch (IOException | InterruptedException e) {
             log.error("Failed to get url", e);
+            throw new DockerException("Failed to get url.\n" + processLog);
         }
         return result.toString().trim();
     }

@@ -1,7 +1,5 @@
 package com.nvp.orchestrator.logs;
 
-import lombok.Getter;
-
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
