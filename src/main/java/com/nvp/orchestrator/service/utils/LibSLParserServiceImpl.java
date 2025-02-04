@@ -1,8 +1,8 @@
-package com.nvp.orchestrator.service.impl;
+package com.nvp.orchestrator.service.utils;
 
 import com.nvp.orchestrator.logs.OutputRedirect;
-import com.nvp.orchestrator.service.enums.MethodAnnotation;
-import com.nvp.orchestrator.service.exceptions.LibSLParsingException;
+import com.nvp.orchestrator.enums.MethodAnnotation;
+import com.nvp.orchestrator.exceptions.LibSLParsingException;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
@@ -35,7 +35,7 @@ import java.util.stream.Stream;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class LibSLParserServiceImpl {
+public final class LibSLParserServiceImpl {
 
     private final OutputRedirect outputRedirect;
 

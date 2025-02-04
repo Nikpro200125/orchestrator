@@ -1,6 +1,6 @@
-package com.nvp.orchestrator.service.impl;
+package com.nvp.orchestrator.service.utils;
 
-import com.nvp.orchestrator.service.exceptions.DockerException;
+import com.nvp.orchestrator.exceptions.DockerException;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
@@ -11,7 +11,7 @@ import java.nio.file.Path;
 
 @UtilityClass
 @Slf4j
-public class DockerTools {
+public final class DockerTools {
 
     public static String build(Path tempDir) {
 
@@ -35,7 +35,7 @@ public class DockerTools {
 
             int exitCode = process.waitFor();
             if (exitCode == 0) {
-                log.info("Проект успешно собран!");
+                log.info("Образ успешно собран!");
 
             } else {
                 log.error("Failed to build project");

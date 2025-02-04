@@ -1,4 +1,4 @@
-package com.nvp.orchestrator.service.enums;
+package com.nvp.orchestrator.enums;
 
 public enum MethodAnnotation {
     GET, POST, PUT, DELETE;

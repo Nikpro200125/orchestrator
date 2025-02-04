@@ -1,4 +1,4 @@
-package com.nvp.orchestrator.service.exceptions;
+package com.nvp.orchestrator.exceptions;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;

@@ -1,6 +1,6 @@
-package com.nvp.orchestrator.service.impl;
+package com.nvp.orchestrator.service.utils;
 
-import com.nvp.orchestrator.service.exceptions.ProjectCompilationException;
+import com.nvp.orchestrator.exceptions.ProjectCompilationException;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
@@ -11,7 +11,7 @@ import java.nio.file.Path;
 
 @UtilityClass
 @Slf4j
-public class MavenTools {
+public final class MavenTools {
 
     public static void compileGenerated(Path tempDir) {
 

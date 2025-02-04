@@ -1,6 +1,6 @@
-package com.nvp.orchestrator.service.impl;
+package com.nvp.orchestrator.service.utils;
 
-import com.nvp.orchestrator.service.exceptions.OpenApiGenerationException;
+import com.nvp.orchestrator.exceptions.OpenApiGenerationException;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 

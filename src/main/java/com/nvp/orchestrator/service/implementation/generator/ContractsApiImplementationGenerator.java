@@ -1,27 +1,19 @@
-package com.nvp.orchestrator.service.impl;
+package com.nvp.orchestrator.service.implementation.generator;
 
-import lombok.RequiredArgsConstructor;
+import com.nvp.orchestrator.exceptions.GenerationImplementationException;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.research.libsl.nodes.*;
-import org.reflections.Reflections;
-import org.reflections.scanners.Scanner;
-import org.reflections.scanners.Scanners;
-import org.reflections.util.ConfigurationBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.javapoet.*;
 
 import javax.lang.model.element.Modifier;
-import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -30,78 +22,18 @@ import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
-@RequiredArgsConstructor
 @Slf4j
-public class ApiImplementationGenerator {
+public final class ContractsApiImplementationGenerator extends ApiImplementationGenerator {
 
-    private final Path generatedProjectPath;
+    private final Library library;
 
-    /**
-     * Генерация реализаций интерфейсов API.
-     */
-    public void generate(Library library) throws IOException {
-        // Получаем все классы из пакета org.openapitools.api
-        Collection<Class<?>> apiClasses = getClassesFromPackage();
-        // Ищем интерфейсы
-        for (Class<?> apiInterface : apiClasses) {
-            if (apiInterface.isInterface() && apiInterface.getSimpleName().endsWith("Api")) {
-                generateImplementationForInterface(apiInterface, library);
-            }
-        }
-
+    public ContractsApiImplementationGenerator(Path generatedProjectPath, Library library) {
+        super(generatedProjectPath);
+        this.library = library;
     }
 
-    private Collection<Class<?>> getClassesFromPackage() throws MalformedURLException {
-        URLClassLoader urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
-        Path classesPath = generatedProjectPath.resolve("target/classes/org/openapitools/api");
-        URL url = classesPath.toUri().toURL();
-        Scanner scanner = Scanners.SubTypes.filterResultsBy(s -> true);
-        Reflections reflections = new Reflections(
-                new ConfigurationBuilder()
-                        .setUrls(url)
-                        .setScanners(scanner)
-                        .setClassLoaders(new URLClassLoader[]{urlClassLoader})
-        );
-        return reflections.getSubTypesOf(Object.class);
-    }
-
-    /**
-     * Генерация реализации для интерфейса API.
-     */
-    private void generateImplementationForInterface(Class<?> apiInterface, Library library) throws IOException {
-        String implClassName = apiInterface.getSimpleName().replaceAll("Api$", "ApiController");
-        String packageName = apiInterface.getPackage().getName();
-
-        TypeSpec.Builder classBuilder = TypeSpec.classBuilder(implClassName)
-                .addModifiers(Modifier.PUBLIC)
-                .addAnnotation(org.springframework.web.bind.annotation.RestController.class)
-                .addSuperinterface(apiInterface);
-
-        // Генерируем методы интерфейса
-        for (Method method : apiInterface.getMethods()) {
-            classBuilder.addMethod(generateMethodStub(getApiInterfaceName(apiInterface), method, library));
-        }
-
-        // Создаём файл Java
-        TypeSpec implType = classBuilder.build();
-        JavaFile javaFile = JavaFile.builder(packageName, implType).build();
-
-        // Сохраняем файл в src/main/java
-        Path outputDir = generatedProjectPath.resolve("src/main/java");
-        javaFile.writeTo(outputDir);
-
-        log.info("Сгенерирован класс: {}", implClassName);
-    }
-
-    @NotNull
-    private static String getApiInterfaceName(Class<?> apiInterface) {
-        return apiInterface.getSimpleName().substring(0, apiInterface.getSimpleName().length() - 3);
-    }
-
-    /**
-     * Генерация заглушки для метода.
-     */
-    private MethodSpec generateMethodStub(String interfaceName, Method method, Library library) {
+    @Override
+    protected MethodSpec generateMethodStub(String interfaceName, Method method) {
         MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder(method.getName())
                 .addModifiers(Modifier.PUBLIC)
                 .addAnnotation(Override.class);
@@ -126,14 +58,14 @@ public class ApiImplementationGenerator {
                     if (!contracts.isEmpty()) {
                         List<Contract> requires = getContractList(contracts, ContractKind.REQUIRES);
                         List<Contract> ensures = getContractList(contracts, ContractKind.ENSURES);
-                        return generateMethodStatementFromContracts(methodBuilder, returnType, requires, ensures);
+                        return generateMethodResponseCodeBlockFromContracts(methodBuilder, returnType, requires, ensures);
                     }
                 }
             }
         }
 
         // Добавляем заглушку для возвращаемого значения
-        methodBuilder.addStatement("return $L", generateRandomValueCodeBlock(returnType));
+        methodBuilder.addStatement("return $L", generateRandomMethodResponseCodeBlock(returnType));
 
         return methodBuilder.build();
     }
@@ -153,19 +85,40 @@ public class ApiImplementationGenerator {
         return library.getAutomata().stream().filter(a -> a.getName().equals(interfaceName)).findFirst().orElse(null);
     }
 
-    private MethodSpec generateMethodStatementFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures) {
+    private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
-        codeBlockBuilder.beginControlFlow("if (!($L))", generateRequiresContractsIfStatement(requires));
+
+        // проверка requires - если не прошла - ошибка
+        codeBlockBuilder.beginControlFlow("if (!($L))", generateContractsCondition(requires));
         codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition failed");
         codeBlockBuilder.endControlFlow();
-        codeBlockBuilder.addStatement("return $L", generateRandomValueCodeBlock(returnType));
+
+        Class<?> returnClass = getReturnClassFromResponseEntity(returnType);
+
+        codeBlockBuilder.add(generateResponseResultBasedOnContracts(returnClass, ensures));
+
         return methodBuilder.addCode(codeBlockBuilder.build()).build();
     }
 
-    private static CodeBlock generateRequiresContractsIfStatement(List<Contract> requires) {
+    private CodeBlock generateResponseResultBasedOnContracts(Class<?> returnClass, List<Contract> ensures) {
+        return null;
+    }
+
+    @NotNull
+    private static Class<?> getReturnClassFromResponseEntity(Type returnType) {
+        if (returnType instanceof ParameterizedType returnClass) {
+            if (returnClass.getRawType() == ResponseEntity.class) {
+                return (Class<?>) returnClass.getActualTypeArguments()[0];
+            }
+        }
+
+        throw new GenerationImplementationException("No return class can be inferred for " + returnType.getTypeName());
+    }
+
+    private static CodeBlock generateContractsCondition(List<Contract> requires) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
         for (int i = 0; i < requires.size(); i++) {
-            codeBlockBuilder.add("($L)", generateRequiresContractCodeBlock(requires.get(i)));
+            codeBlockBuilder.add("($L)", contractExpressionToDumpString(requires.get(i)));
             if (i < requires.size() - 1) {
                 codeBlockBuilder.add(" && ");
             }
@@ -173,12 +126,12 @@ public class ApiImplementationGenerator {
         return codeBlockBuilder.build();
     }
 
-    private static String generateRequiresContractCodeBlock(Contract contract) {
+    private static String contractExpressionToDumpString(Contract contract) {
         return contract.getExpression().dumpToString();
     }
 
     // Генерация случайных данных по типу
-    private CodeBlock generateRandomValueCodeBlock(Type returnType) {
+    private CodeBlock generateRandomMethodResponseCodeBlock(Type returnType) {
         if (returnType instanceof Class<?> returnClass) {
             // Обработка примитивов и известных типов
             if (returnClass == int.class || returnClass == Integer.class) {
@@ -208,7 +161,7 @@ public class ApiImplementationGenerator {
             if (returnClass.isArray()) {
                 // Генерация пустого массива
                 return CodeBlock.builder()
-                        .add("$T.singletonList($L)", java.util.Collections.class, generateRandomValueCodeBlock(returnClass.getComponentType()))
+                        .add("$T.singletonList($L)", java.util.Collections.class, generateRandomMethodResponseCodeBlock(returnClass.getComponentType()))
                         .build();
             }
 
@@ -223,7 +176,7 @@ public class ApiImplementationGenerator {
 
             if (!returnClass.isInterface()) {
                 // Используем публичный конструктор с наибольшим количеством параметров
-                return CodeBlock.builder().add(generateRandomConstructorValue(returnClass)).build();
+                return CodeBlock.builder().add(generateConstructorValue(returnClass)).build();
             }
         }
 
@@ -236,24 +189,24 @@ public class ApiImplementationGenerator {
                 if (responseType == Void.class) {
                     return CodeBlock.builder().add("$T.ok().build()", org.springframework.http.ResponseEntity.class).build();
                 }
-                return CodeBlock.builder().add("$T.ok($L)", org.springframework.http.ResponseEntity.class, generateRandomValueCodeBlock(responseType)).build();
+                return CodeBlock.builder().add("$T.ok($L)", org.springframework.http.ResponseEntity.class, generateRandomMethodResponseCodeBlock(responseType)).build();
             }
 
-            // Обработка коллекций и карт
+            // Обработка коллекций и мап
             if (rawType == List.class || rawType == ArrayList.class) {
                 Type elementType = parameterizedType.getActualTypeArguments()[0];
-                return CodeBlock.builder().add("$T.singletonList($L)", java.util.Collections.class, generateRandomValueCodeBlock(elementType)).build();
+                return CodeBlock.builder().add("$T.singletonList($L)", java.util.Collections.class, generateRandomMethodResponseCodeBlock(elementType)).build();
             }
 
             if (rawType == Set.class || rawType == HashSet.class) {
                 Type elementType = parameterizedType.getActualTypeArguments()[0];
-                return CodeBlock.builder().add("$T.singleton($L)", java.util.Collections.class, generateRandomValueCodeBlock(elementType)).build();
+                return CodeBlock.builder().add("$T.singleton($L)", java.util.Collections.class, generateRandomMethodResponseCodeBlock(elementType)).build();
             }
 
             if (rawType == Map.class || rawType == HashMap.class) {
                 Type keyType = parameterizedType.getActualTypeArguments()[0];
                 Type valueType = parameterizedType.getActualTypeArguments()[1];
-                return CodeBlock.builder().add("$T.singletonMap($L, $L)", java.util.Collections.class, generateRandomValueCodeBlock(keyType), generateRandomValueCodeBlock(valueType)).build();
+                return CodeBlock.builder().add("$T.singletonMap($L, $L)", java.util.Collections.class, generateRandomMethodResponseCodeBlock(keyType), generateRandomMethodResponseCodeBlock(valueType)).build();
             }
         }
 
@@ -262,32 +215,40 @@ public class ApiImplementationGenerator {
     }
 
     // Генерация значения с использованием случайного конструктора
-    private CodeBlock generateRandomConstructorValue(Class<?> customClass) {
-        Constructor<?>[] constructors = customClass.getDeclaredConstructors();
+    private CodeBlock generateConstructorValue(Class<?> customClass) {
+        java.lang.reflect.Constructor<?>[] constructors = customClass.getDeclaredConstructors();
 
         // Фильтруем только доступные конструкторы
-        List<Constructor<?>> accessibleConstructors = new ArrayList<>(Arrays.asList(constructors));
+        List<java.lang.reflect.Constructor<?>> accessibleConstructors = new ArrayList<>(Arrays.asList(constructors));
 
         if (accessibleConstructors.isEmpty()) {
             return CodeBlock.builder().add("null").build();
         }
 
         // Выбираем случайный конструктор с максимальным количеством параметров для public конструкторов
-        Constructor<?> randomConstructor = accessibleConstructors.stream()
-                .filter(constructor -> java.lang.reflect.Modifier.isPublic(constructor.getModifiers()))
-                .max(Comparator.comparingInt(Constructor::getParameterCount)).orElseThrow(
-                        () -> new IllegalStateException("No public constructors found for class " + customClass.getName())
-                );
+        java.lang.reflect.Constructor<?> randomConstructor = getConstructor(customClass, accessibleConstructors);
 
         // Генерируем параметры для конструктора
-        String constructorArgs = Arrays.stream(randomConstructor.getParameters())
-                .map(Parameter::getParameterizedType)
-                .map(this::generateRandomValueCodeBlock)
-                .map(CodeBlock::toString)
-                .collect(Collectors.joining(", "));
+        String constructorArgs = getConstructorArgs(randomConstructor);
 
         // Возвращаем строку для вызова конструктора
         return CodeBlock.builder().add("new $T($L)", customClass, constructorArgs).build();
     }
 
+    @NotNull
+    private String getConstructorArgs(java.lang.reflect.Constructor<?> randomConstructor) {
+        return Arrays.stream(randomConstructor.getParameters())
+                .map(Parameter::getParameterizedType)
+                .map(this::generateRandomMethodResponseCodeBlock)
+                .map(CodeBlock::toString)
+                .collect(Collectors.joining(", "));
+    }
+
+    private static java.lang.reflect.Constructor<?> getConstructor(Class<?> customClass, List<java.lang.reflect.Constructor<?>> accessibleConstructors) {
+        return accessibleConstructors.stream()
+                .filter(constructor -> java.lang.reflect.Modifier.isPublic(constructor.getModifiers()))
+                .max(Comparator.comparingInt(Constructor::getParameterCount)).orElseThrow(
+                        () -> new GenerationImplementationException("No public constructors found for class " + customClass.getName())
+                );
+    }
 }
