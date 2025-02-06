@@ -1,7 +1,11 @@
 package com.nvp.orchestrator.service.implementation.generator;
 
 import com.nvp.orchestrator.exceptions.GenerationImplementationException;
+import com.nvp.orchestrator.model.ModelData;
 import lombok.extern.slf4j.Slf4j;
+import org.chocosolver.solver.Model;
+import org.chocosolver.solver.Solution;
+import org.chocosolver.solver.Solver;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.research.libsl.nodes.*;
@@ -9,18 +13,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.javapoet.*;
 
 import javax.lang.model.element.Modifier;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.nio.file.Path;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZonedDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Slf4j
 public final class ContractsApiImplementationGenerator extends ApiImplementationGenerator {
@@ -64,8 +62,9 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
             }
         }
 
-        // Добавляем заглушку для возвращаемого значения
-        methodBuilder.addStatement("return $L", generateRandomMethodResponseCodeBlock(returnType));
+        // Не найдены контракты - генерация случайных данных
+        log.error("No contracts found for method {}", method.getName());
+        methodBuilder.addStatement("return $L", generateRandomGeneratedObject(returnType));
 
         return methodBuilder.build();
     }
@@ -88,7 +87,6 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
     private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
 
-        // проверка requires - если не прошла - ошибка
         codeBlockBuilder.beginControlFlow("if (!($L))", generateContractsCondition(requires));
         codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition failed");
         codeBlockBuilder.endControlFlow();
@@ -98,10 +96,6 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         codeBlockBuilder.add(generateResponseResultBasedOnContracts(returnClass, ensures));
 
         return methodBuilder.addCode(codeBlockBuilder.build()).build();
-    }
-
-    private CodeBlock generateResponseResultBasedOnContracts(Class<?> returnClass, List<Contract> ensures) {
-        return null;
     }
 
     @NotNull
@@ -126,129 +120,29 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         return codeBlockBuilder.build();
     }
 
+    private CodeBlock generateResponseResultBasedOnContracts(Class<?> returnClass, List<Contract> ensures) {
+        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+
+        codeBlockBuilder.addStatement("$T model = new $T()", Model.class, Model.class);
+
+        // generate ensures conditions
+        ModelData modelData = new ModelData(returnClass, ensures);
+
+        codeBlockBuilder.addStatement("$T solver = model.getSolver()", Solver.class);
+        codeBlockBuilder.addStatement("$T solution = solver.findSolution()", Solution.class);
+
+        // check if solution is found
+        codeBlockBuilder.beginControlFlow("if (solution == null)");
+        codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Cannot find solution for the given constraints");
+        codeBlockBuilder.endControlFlow();
+
+        // generate return statement
+
+        return codeBlockBuilder.build();
+    }
+
     private static String contractExpressionToDumpString(Contract contract) {
         return contract.getExpression().dumpToString();
     }
 
-    // Генерация случайных данных по типу
-    private CodeBlock generateRandomMethodResponseCodeBlock(Type returnType) {
-        if (returnType instanceof Class<?> returnClass) {
-            // Обработка примитивов и известных типов
-            if (returnClass == int.class || returnClass == Integer.class) {
-                return CodeBlock.builder().add("new $T().nextInt()", Random.class).build();
-            }
-
-            if (returnClass == long.class || returnClass == Long.class) {
-                return CodeBlock.builder().add("new $T().nextLong()", Random.class).build();
-            }
-
-            if (returnClass == double.class || returnClass == Double.class) {
-                return CodeBlock.builder().add("new $T().nextDouble()", Random.class).build();
-            }
-
-            if (returnClass == boolean.class || returnClass == Boolean.class) {
-                return CodeBlock.builder().add("new $T().nextBoolean()", Random.class).build();
-            }
-
-            if (returnClass == String.class) {
-                return CodeBlock.builder().add("$S + new $T().nextInt()", "RandomString", Random.class).build();
-            }
-
-            if (List.of(LocalDate.class, LocalDateTime.class, ZonedDateTime.class, OffsetDateTime.class).contains(returnClass)) {
-                return CodeBlock.builder().add("$T.now()", returnClass).build();
-            }
-
-            if (returnClass.isArray()) {
-                // Генерация пустого массива
-                return CodeBlock.builder()
-                        .add("$T.singletonList($L)", java.util.Collections.class, generateRandomMethodResponseCodeBlock(returnClass.getComponentType()))
-                        .build();
-            }
-
-            if (returnClass.isPrimitive()) {
-                return CodeBlock.builder().add("0").build(); // Значение по умолчанию для примитивов
-            }
-
-            if (returnClass.isEnum()) {
-                Object[] enumConstants = returnClass.getEnumConstants();
-                return CodeBlock.builder().add("$T.$L", returnClass, enumConstants[0].toString().toUpperCase()).build();
-            }
-
-            if (!returnClass.isInterface()) {
-                // Используем публичный конструктор с наибольшим количеством параметров
-                return CodeBlock.builder().add(generateConstructorValue(returnClass)).build();
-            }
-        }
-
-        if (returnType instanceof ParameterizedType parameterizedType) {
-            Type rawType = parameterizedType.getRawType();
-
-            // Обработка ResponseEntity
-            if (rawType == ResponseEntity.class) {
-                Type responseType = parameterizedType.getActualTypeArguments()[0];
-                if (responseType == Void.class) {
-                    return CodeBlock.builder().add("$T.ok().build()", org.springframework.http.ResponseEntity.class).build();
-                }
-                return CodeBlock.builder().add("$T.ok($L)", org.springframework.http.ResponseEntity.class, generateRandomMethodResponseCodeBlock(responseType)).build();
-            }
-
-            // Обработка коллекций и мап
-            if (rawType == List.class || rawType == ArrayList.class) {
-                Type elementType = parameterizedType.getActualTypeArguments()[0];
-                return CodeBlock.builder().add("$T.singletonList($L)", java.util.Collections.class, generateRandomMethodResponseCodeBlock(elementType)).build();
-            }
-
-            if (rawType == Set.class || rawType == HashSet.class) {
-                Type elementType = parameterizedType.getActualTypeArguments()[0];
-                return CodeBlock.builder().add("$T.singleton($L)", java.util.Collections.class, generateRandomMethodResponseCodeBlock(elementType)).build();
-            }
-
-            if (rawType == Map.class || rawType == HashMap.class) {
-                Type keyType = parameterizedType.getActualTypeArguments()[0];
-                Type valueType = parameterizedType.getActualTypeArguments()[1];
-                return CodeBlock.builder().add("$T.singletonMap($L, $L)", java.util.Collections.class, generateRandomMethodResponseCodeBlock(keyType), generateRandomMethodResponseCodeBlock(valueType)).build();
-            }
-        }
-
-        log.warn("Не удалось сгенерировать значение для типа: {}", returnType);
-        return CodeBlock.builder().add("null").build();
-    }
-
-    // Генерация значения с использованием случайного конструктора
-    private CodeBlock generateConstructorValue(Class<?> customClass) {
-        java.lang.reflect.Constructor<?>[] constructors = customClass.getDeclaredConstructors();
-
-        // Фильтруем только доступные конструкторы
-        List<java.lang.reflect.Constructor<?>> accessibleConstructors = new ArrayList<>(Arrays.asList(constructors));
-
-        if (accessibleConstructors.isEmpty()) {
-            return CodeBlock.builder().add("null").build();
-        }
-
-        // Выбираем случайный конструктор с максимальным количеством параметров для public конструкторов
-        java.lang.reflect.Constructor<?> randomConstructor = getConstructor(customClass, accessibleConstructors);
-
-        // Генерируем параметры для конструктора
-        String constructorArgs = getConstructorArgs(randomConstructor);
-
-        // Возвращаем строку для вызова конструктора
-        return CodeBlock.builder().add("new $T($L)", customClass, constructorArgs).build();
-    }
-
-    @NotNull
-    private String getConstructorArgs(java.lang.reflect.Constructor<?> randomConstructor) {
-        return Arrays.stream(randomConstructor.getParameters())
-                .map(Parameter::getParameterizedType)
-                .map(this::generateRandomMethodResponseCodeBlock)
-                .map(CodeBlock::toString)
-                .collect(Collectors.joining(", "));
-    }
-
-    private static java.lang.reflect.Constructor<?> getConstructor(Class<?> customClass, List<java.lang.reflect.Constructor<?>> accessibleConstructors) {
-        return accessibleConstructors.stream()
-                .filter(constructor -> java.lang.reflect.Modifier.isPublic(constructor.getModifiers()))
-                .max(Comparator.comparingInt(Constructor::getParameterCount)).orElseThrow(
-                        () -> new GenerationImplementationException("No public constructors found for class " + customClass.getName())
-                );
-    }
 }

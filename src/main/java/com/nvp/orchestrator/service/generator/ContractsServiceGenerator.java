@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.nvp.orchestrator.exceptions.GenerationServiceException;
 import com.nvp.orchestrator.service.implementation.generator.ContractsApiImplementationGenerator;
-import com.nvp.orchestrator.service.utils.LibSLParserServiceImpl;
+import com.nvp.orchestrator.service.util.LibSLParserServiceImpl;
 import io.swagger.v3.oas.models.OpenAPI;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

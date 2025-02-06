@@ -27,6 +27,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     implementation("io.swagger.core.v3:swagger-core:2.2.27")
+    implementation("org.choco-solver:choco-solver:4.10.18")
 }
 
 tasks.withType<Test> {

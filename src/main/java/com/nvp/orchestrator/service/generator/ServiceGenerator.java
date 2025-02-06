@@ -1,9 +1,9 @@
 package com.nvp.orchestrator.service.generator;
 
 import com.nvp.orchestrator.exceptions.GenerationServiceException;
-import com.nvp.orchestrator.service.utils.OpenApiGenerator;
-import com.nvp.orchestrator.service.utils.DockerTools;
-import com.nvp.orchestrator.service.utils.MavenTools;
+import com.nvp.orchestrator.service.util.OpenApiGenerator;
+import com.nvp.orchestrator.service.util.DockerTools;
+import com.nvp.orchestrator.service.util.MavenTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.multipart.MultipartFile;
 
