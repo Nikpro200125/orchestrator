@@ -75,8 +75,8 @@ public class ModelData {
     }
 
     private Class<?> getClassByFieldName(String fieldName) {
-        String filedPath = fieldName.replaceFirst("^" + RESULT_FIELD + "(?:\\" + FIELD_DELIMITER + ")?", "");
-        String[] path = filedPath.isBlank() ? new String[0] : filedPath.split(FIELD_DELIMITER);
+        String filedPath = fieldName.replaceFirst("^" + RESULT_FIELD + "(?:" + quoteReplacement(FIELD_DELIMITER) + ")?", "");
+        String[] path = filedPath.isBlank() ? new String[0] : filedPath.split(quoteReplacement(FIELD_DELIMITER));
         Class<?> currentClass = returnClass;
         for (String field : path) {
             currentClass = getFieldClass(currentClass, field);
