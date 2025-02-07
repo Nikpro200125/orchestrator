@@ -11,10 +11,7 @@ import org.reflections.scanners.Scanner;
 import org.reflections.scanners.Scanners;
 import org.reflections.util.ConfigurationBuilder;
 import org.springframework.http.ResponseEntity;
-import org.springframework.javapoet.CodeBlock;
-import org.springframework.javapoet.JavaFile;
-import org.springframework.javapoet.MethodSpec;
-import org.springframework.javapoet.TypeSpec;
+import org.springframework.javapoet.*;
 
 import javax.lang.model.element.Modifier;
 import java.lang.reflect.*;
@@ -60,7 +57,7 @@ public sealed abstract class ApiImplementationGenerator permits ContractsApiImpl
         return reflections.getSubTypesOf(Object.class);
     }
 
-    private void generateImplementationForInterface(Class<?> apiInterface) {
+    protected void generateImplementationForInterface(Class<?> apiInterface) {
         String implClassName = apiInterface.getSimpleName().replaceAll("Api$", "ApiController");
 
         TypeSpec.Builder classBuilder = TypeSpec.classBuilder(implClassName)
@@ -79,7 +76,7 @@ public sealed abstract class ApiImplementationGenerator permits ContractsApiImpl
         log.info("Сгенерирован класс: {}", implClassName);
     }
 
-    private void saveGeneratedClass(TypeSpec.Builder classBuilder, String packageName) {
+    protected void saveGeneratedClass(TypeSpec.Builder classBuilder, String packageName) {
         TypeSpec implType = classBuilder.build();
         JavaFile javaFile = JavaFile.builder(packageName, implType).build();
 
@@ -96,7 +93,7 @@ public sealed abstract class ApiImplementationGenerator permits ContractsApiImpl
     abstract protected MethodSpec generateMethodStub(String apiInterfaceName, Method method);
 
     @NotNull
-    private static String getApiInterfaceName(Class<?> apiInterface) {
+    protected static String getApiInterfaceName(Class<?> apiInterface) {
         return apiInterface.getSimpleName().substring(0, apiInterface.getSimpleName().length() - 3);
     }
 

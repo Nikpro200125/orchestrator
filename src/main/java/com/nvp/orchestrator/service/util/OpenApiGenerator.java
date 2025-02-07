@@ -45,6 +45,9 @@ public class OpenApiGenerator {
 
         int exitCode = process.waitFor();
         if (exitCode != 0) {
+            if (processLog.isEmpty()) {
+               throw new OpenApiGenerationException("Failed to generate service. Possibly due to docker not being started.");
+            }
             throw new OpenApiGenerationException("Failed to generate service. \n" + processLog);
         }
         log.info("Service generated successfully at: {}", tempDir.toAbsolutePath());

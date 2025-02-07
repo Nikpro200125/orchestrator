@@ -2,10 +2,13 @@ package com.nvp.orchestrator.service.implementation.generator;
 
 import com.nvp.orchestrator.exceptions.GenerationImplementationException;
 import com.nvp.orchestrator.model.ModelData;
+import com.nvp.orchestrator.model.ModelVariable;
 import lombok.extern.slf4j.Slf4j;
 import org.chocosolver.solver.Model;
 import org.chocosolver.solver.Solution;
 import org.chocosolver.solver.Solver;
+import org.chocosolver.solver.variables.IntVar;
+import org.chocosolver.solver.variables.RealVar;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.research.libsl.nodes.*;
@@ -56,7 +59,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
                     if (!contracts.isEmpty()) {
                         List<Contract> requires = getContractList(contracts, ContractKind.REQUIRES);
                         List<Contract> ensures = getContractList(contracts, ContractKind.ENSURES);
-                        return generateMethodResponseCodeBlockFromContracts(methodBuilder, returnType, requires, ensures);
+                        return generateMethodResponseCodeBlockFromContracts(methodBuilder, returnType, requires, ensures, method.getName());
                     }
                 }
             }
@@ -67,6 +70,29 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         methodBuilder.addStatement("return $L", generateRandomGeneratedObject(returnType));
 
         return methodBuilder.build();
+    }
+
+    @Override
+    protected void generateImplementationForInterface(Class<?> apiInterface) {
+        String implClassName = apiInterface.getSimpleName().replaceAll("Api$", "ApiController");
+
+        TypeSpec.Builder classBuilder = TypeSpec.classBuilder(implClassName)
+                .addModifiers(Modifier.PUBLIC)
+                .addAnnotation(org.springframework.web.bind.annotation.RestController.class)
+                .addSuperinterface(apiInterface);
+
+        // Генерируем методы интерфейса
+        for (Method method : apiInterface.getMethods()) {
+            FieldSpec.Builder fieldBuilder = FieldSpec.builder(Integer.class, method.getName(), Modifier.PRIVATE)
+                    .initializer("1");
+            classBuilder.addField(fieldBuilder.build());
+            classBuilder.addMethod(generateMethodStub(getApiInterfaceName(apiInterface), method));
+        }
+
+        String packageName = apiInterface.getPackage().getName();
+        saveGeneratedClass(classBuilder, packageName);
+
+        log.info("Сгенерирован класс: {}", implClassName);
     }
 
     @NotNull
@@ -84,7 +110,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         return library.getAutomata().stream().filter(a -> a.getName().equals(interfaceName)).findFirst().orElse(null);
     }
 
-    private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures) {
+    private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures, String methodName) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
 
         codeBlockBuilder.beginControlFlow("if (!($L))", generateContractsCondition(requires));
@@ -93,7 +119,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         Class<?> returnClass = getReturnClassFromResponseEntity(returnType);
 
-        codeBlockBuilder.add(generateResponseResultBasedOnContracts(returnClass, ensures));
+        codeBlockBuilder.add(generateResponseResultBasedOnContracts(returnClass, ensures, methodName));
 
         return methodBuilder.addCode(codeBlockBuilder.build()).build();
     }
@@ -120,29 +146,76 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         return codeBlockBuilder.build();
     }
 
-    private CodeBlock generateResponseResultBasedOnContracts(Class<?> returnClass, List<Contract> ensures) {
+    private CodeBlock generateResponseResultBasedOnContracts(Class<?> returnClass, List<Contract> ensures, String methodName) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
 
+        codeBlockBuilder.add("// Create model\n");
         codeBlockBuilder.addStatement("$T model = new $T()", Model.class, Model.class);
 
         // generate ensures conditions
+        codeBlockBuilder.add("// Create model variables\n");
         ModelData modelData = new ModelData(returnClass, ensures);
+        createModelVariables(codeBlockBuilder, modelData);
+        codeBlockBuilder.add("// Add contracts\n");
+        codeBlockBuilder.add(modelData.getModelContracts());
 
+        codeBlockBuilder.add("// Create solver and find solution\n");
         codeBlockBuilder.addStatement("$T solver = model.getSolver()", Solver.class);
         codeBlockBuilder.addStatement("$T solution = solver.findSolution()", Solution.class);
+        codeBlockBuilder.beginControlFlow("for (int i = 1; i < $L; i++)", methodName);
+        codeBlockBuilder.addStatement("solution = solver.findSolution()");
+        codeBlockBuilder.endControlFlow();
+        codeBlockBuilder.addStatement("$L++", methodName);
+        codeBlockBuilder.beginControlFlow("if (solution == null)");
+        codeBlockBuilder.addStatement("solver.reset()");
+        codeBlockBuilder.addStatement("solution = solver.findSolution()");
+        codeBlockBuilder.addStatement("$L = 2", methodName);
+        codeBlockBuilder.endControlFlow();
 
         // check if solution is found
+        codeBlockBuilder.add("// Check if solution is found\n");
         codeBlockBuilder.beginControlFlow("if (solution == null)");
         codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Cannot find solution for the given constraints");
         codeBlockBuilder.endControlFlow();
 
         // generate return statement
+        codeBlockBuilder.add("// Restore object with solution\n");
+        restoreObjectWithSolution(codeBlockBuilder, modelData, returnClass);
+
+        // return restored object
+        codeBlockBuilder.addStatement("return $T.ok(answer)", ResponseEntity.class);
 
         return codeBlockBuilder.build();
     }
 
     private static String contractExpressionToDumpString(Contract contract) {
         return contract.getExpression().dumpToString();
+    }
+
+    private void restoreObjectWithSolution(CodeBlock.Builder codeBlockBuilder, ModelData modelData, Class<?> returnClass) {
+        // create object with random values and then restore it with solution
+        codeBlockBuilder.addStatement("$T answer = $L", returnClass, generateRandomGeneratedObject(returnClass));
+
+        modelData.restoreModelContracts(codeBlockBuilder);
+    }
+
+    private void createModelVariables(CodeBlock.Builder codeBlockBuilder, ModelData modelData) {
+        for (ModelVariable mv : modelData.getFieldsAffectedByContracts()) {
+            createModelVariable(codeBlockBuilder, mv);
+        }
+    }
+
+    private void createModelVariable(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable) {
+        Class<?> type = modelVariable.type();
+
+        if (type == Integer.class) {
+            codeBlockBuilder.addStatement("$T $L = model.intVar($S, $L, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), -1000000, 1000000);
+        } else if (type == Double.class) {
+            codeBlockBuilder.addStatement("$T $L = model.realVar($S, $L, $L, 0.01)", RealVar.class, modelVariable.name(), modelVariable.name(), -1000000.0, 1000000.0);
+        } else {
+            throw new GenerationImplementationException("Unsupported type " + type.getName());
+        }
+
     }
 
 }
