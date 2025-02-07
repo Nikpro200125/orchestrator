@@ -23,6 +23,8 @@ import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.*;
 
+import static java.util.regex.Matcher.quoteReplacement;
+
 @Slf4j
 public final class ContractsApiImplementationGenerator extends ApiImplementationGenerator {
 
@@ -59,7 +61,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
                     if (!contracts.isEmpty()) {
                         List<Contract> requires = getContractList(contracts, ContractKind.REQUIRES);
                         List<Contract> ensures = getContractList(contracts, ContractKind.ENSURES);
-                        return generateMethodResponseCodeBlockFromContracts(methodBuilder, returnType, requires, ensures, method.getName());
+                        return generateMethodResponseCodeBlockFromContracts(methodBuilder, returnType, requires, ensures, method.getName(), method.getParameters());
                     }
                 }
             }
@@ -110,7 +112,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         return library.getAutomata().stream().filter(a -> a.getName().equals(interfaceName)).findFirst().orElse(null);
     }
 
-    private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures, String methodName) {
+    private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures, String methodName, Parameter[] parameters) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
 
         codeBlockBuilder.beginControlFlow("if (!($L))", generateContractsCondition(requires));
@@ -119,7 +121,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         Class<?> returnClass = getReturnClassFromResponseEntity(returnType);
 
-        codeBlockBuilder.add(generateResponseResultBasedOnContracts(returnClass, ensures, methodName));
+        codeBlockBuilder.add(generateResponseResultBasedOnContracts(returnClass, ensures, methodName, parameters));
 
         return methodBuilder.addCode(codeBlockBuilder.build()).build();
     }
@@ -146,20 +148,20 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         return codeBlockBuilder.build();
     }
 
-    private CodeBlock generateResponseResultBasedOnContracts(Class<?> returnClass, List<Contract> ensures, String methodName) {
+    private CodeBlock generateResponseResultBasedOnContracts(Class<?> returnClass, List<Contract> ensures, String methodName, Parameter[] parameters) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+        ModelData modelData = new ModelData(returnClass, ensures, parameters);
 
-        codeBlockBuilder.add("// Create model\n");
+        codeBlockBuilder.add("\n// Create model\n");
         codeBlockBuilder.addStatement("$T model = new $T()", Model.class, Model.class);
 
         // generate ensures conditions
-        codeBlockBuilder.add("// Create model variables\n");
-        ModelData modelData = new ModelData(returnClass, ensures);
         createModelVariables(codeBlockBuilder, modelData);
-        codeBlockBuilder.add("// Add contracts\n");
+        codeBlockBuilder.add("\n// Add contracts\n");
         codeBlockBuilder.add(modelData.getModelContracts());
 
-        codeBlockBuilder.add("// Create solver and find solution\n");
+        // create solver and find solution
+        codeBlockBuilder.add("\n// Create solver and find solution\n");
         codeBlockBuilder.addStatement("$T solver = model.getSolver()", Solver.class);
         codeBlockBuilder.addStatement("$T solution = solver.findSolution()", Solution.class);
         codeBlockBuilder.beginControlFlow("for (int i = 1; i < $L; i++)", methodName);
@@ -173,13 +175,13 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         codeBlockBuilder.endControlFlow();
 
         // check if solution is found
-        codeBlockBuilder.add("// Check if solution is found\n");
+        codeBlockBuilder.add("\n// Check if solution is found\n");
         codeBlockBuilder.beginControlFlow("if (solution == null)");
         codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Cannot find solution for the given constraints");
         codeBlockBuilder.endControlFlow();
 
         // generate return statement
-        codeBlockBuilder.add("// Restore object with solution\n");
+        codeBlockBuilder.add("\n// Restore object with solution\n");
         restoreObjectWithSolution(codeBlockBuilder, modelData, returnClass);
 
         // return restored object
@@ -200,9 +202,28 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
     }
 
     private void createModelVariables(CodeBlock.Builder codeBlockBuilder, ModelData modelData) {
+        codeBlockBuilder.add("\n// Create model variables\n");
         for (ModelVariable mv : modelData.getFieldsAffectedByContracts()) {
-            createModelVariable(codeBlockBuilder, mv);
+            ModelVariable mp = modelData.isParameter(mv);
+            if (mp != null) {
+                createModelVariableParameter(codeBlockBuilder, mv, mp);
+            } else {
+                createModelVariable(codeBlockBuilder, mv);
+            }
         }
+    }
+
+    private void createModelVariableParameter(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable, ModelVariable modelParameter) {
+        Class<?> type = modelVariable.type();
+
+        if (type == Integer.class) {
+            codeBlockBuilder.addStatement("$T $L = model.intVar($S, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), modelParameter.name());
+        } else if (type == Double.class) {
+            codeBlockBuilder.addStatement("$T $L = model.realVar($S, $L)", RealVar.class, modelVariable.name(), modelVariable.name(), modelParameter.name());
+        } else {
+            throw new GenerationImplementationException("Unsupported type " + type.getName());
+        }
+
     }
 
     private void createModelVariable(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable) {

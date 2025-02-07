@@ -22,6 +22,8 @@ public class Test {
         // x > 0 || y > 0
 
         x.eq(0).or(y.gt(0)).post();
+        int $d = 0;
+        RealVar d = model.realVar("d", 10.0);
 
         // Создаём решатель
         Solver solver = model.getSolver();
