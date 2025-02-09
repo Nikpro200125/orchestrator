@@ -1,5 +1,6 @@
 package com.nvp.orchestrator.service.util;
 
+import com.nvp.orchestrator.enums.ParameterType;
 import com.nvp.orchestrator.logs.OutputRedirect;
 import com.nvp.orchestrator.enums.MethodAnnotation;
 import com.nvp.orchestrator.exceptions.LibSLParsingException;
@@ -39,9 +40,7 @@ public final class LibSLParserServiceImpl {
 
     private final OutputRedirect outputRedirect;
 
-    private static final String PATH_PARAMETER = "PathParameter";
     private static final String PATH = "path";
-    private static final String REQUEST_BODY = "RequestBody";
     private static final String PATH_DELIMITER = "/";
     private static final String APPLICATION_JSON = "application/json";
 
@@ -112,9 +111,10 @@ public final class LibSLParserServiceImpl {
 
         Operation operation = new Operation();
         function.getArgs().forEach(arg -> {
-            if (isArgumentWithAnnotation(arg, REQUEST_BODY)) {
+            if (isArgumentWithAnnotation(arg, ParameterType.REQUEST_BODE)) {
                 operation.requestBody(generateRequestBody(arg));
-            } else if (isArgumentWithAnnotation(arg, PATH_PARAMETER)) {
+                operation.addExtension("x-codegen-request-body-name", arg.getName());
+            } else if (isArgumentWithAnnotation(arg, ParameterType.PATH)) {
                 operation.addParametersItem(generatePathParameter(arg));
             }
         });
@@ -184,68 +184,72 @@ public final class LibSLParserServiceImpl {
                 .filter(arg ->
                         arg.getAnnotationUsages()
                                 .stream()
-                                .anyMatch(a -> a.getAnnotationReference().getName().equals(REQUEST_BODY)))
+                                .anyMatch(a -> a.getAnnotationReference().getName().equals(ParameterType.REQUEST_BODE.getValue())))
                 .count();
     }
 
-    private static boolean isArgumentWithAnnotation(FunctionArgument argument, String annotationName) {
+    private static boolean isArgumentWithAnnotation(FunctionArgument argument, ParameterType parameterType) {
         return argument.getAnnotationUsages()
                 .stream()
-                .anyMatch(a -> a.getAnnotationReference().getName().equals(annotationName));
+                .anyMatch(a -> a.getAnnotationReference().getName().equals(parameterType.getValue()));
     }
 
     private Schema<?> generateArgumentSchema(Type argumentType) {
 
-        if (argumentType.isTopLevelType()) {
-            ObjectSchema objectSchema = new ObjectSchema();
-            if (argumentType instanceof StructuredType structuredType) {
-                structuredType.getVariables().forEach(variable -> {
-                    Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(variable.getTypeReference().resolve()));
-                    objectSchema.addProperty(variable.getName(), schema);
-                });
-                objectSchema.types(null);
-                return objectSchema;
-            }
-        } else if (argumentType.isArray()) {
-            if (argumentType instanceof ArrayType arrayType) {
-                Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(arrayType.getGenerics().getFirst().resolve()));
-                schema.types(null);
-                ArraySchema arraySchema =  new ArraySchema();
-                arraySchema.items(schema);
-                arraySchema.types(null);
-                return arraySchema;
-            }
-        } else {
-            switch (argumentType) {
-                case SimpleType simpleType -> {
-                    Schema<?> schema = resolveTypeByStringName(simpleType.getRealType().getFullName());
-
-                    schema.types(null);
-                    return schema;
+        try {
+            if (argumentType.isTopLevelType()) {
+                ObjectSchema objectSchema = new ObjectSchema();
+                if (argumentType instanceof StructuredType structuredType) {
+                    structuredType.getVariables().forEach(variable -> {
+                        Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(variable.getTypeReference().resolve()));
+                        objectSchema.addProperty(variable.getName(), schema);
+                    });
+                    objectSchema.types(null);
+                    return objectSchema;
                 }
-                case RealType realType -> {
-                    Schema<?> schema = resolveTypeByStringName(realType.getFullName());
-
+            } else if (argumentType.isArray()) {
+                if (argumentType instanceof ArrayType arrayType) {
+                    Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(arrayType.getGenerics().getFirst().resolve()));
                     schema.types(null);
-                    return schema;
+                    ArraySchema arraySchema = new ArraySchema();
+                    arraySchema.items(schema);
+                    arraySchema.types(null);
+                    return arraySchema;
                 }
-                case MapType mapType -> {
-                    if (mapType.getGenerics().size() != 2) {
-                        throw new LibSLParsingException("Map type should have 2 generics");
+            } else {
+                switch (argumentType) {
+                    case SimpleType simpleType -> {
+                        Schema<?> schema = resolveTypeByStringName(simpleType.getRealType().getFullName());
+
+                        schema.types(null);
+                        return schema;
                     }
+                    case RealType realType -> {
+                        Schema<?> schema = resolveTypeByStringName(realType.getFullName());
 
-                    Schema<?> valueSchema = generateArgumentSchema(Objects.requireNonNull(mapType.getGenerics().getLast().resolve()));
-                    valueSchema.types(null);
+                        schema.types(null);
+                        return schema;
+                    }
+                    case MapType mapType -> {
+                        if (mapType.getGenerics().size() != 2) {
+                            throw new LibSLParsingException("Map type should have 2 generics");
+                        }
 
-                    Schema<?> schema = new MapSchema();
-                    schema.additionalProperties(valueSchema);
+                        Schema<?> valueSchema = generateArgumentSchema(Objects.requireNonNull(mapType.getGenerics().getLast().resolve()));
+                        valueSchema.types(null);
 
-                    schema.types(null);
-                    return schema;
-                }
-                default -> {
+                        Schema<?> schema = new MapSchema();
+                        schema.additionalProperties(valueSchema);
+
+                        schema.types(null);
+                        return schema;
+                    }
+                    default -> {
+                    }
                 }
             }
+        } catch (Exception e) {
+            throw new LibSLParsingException("Failed to generate schema for argument type: " + argumentType);
         }
 
         throw new LibSLParsingException("Unexpected value: " + argumentType);
@@ -255,8 +259,8 @@ public final class LibSLParserServiceImpl {
         return switch (typeName) {
             case "int", "int8", "int16", "int32" -> new IntegerSchema().format("int32");
             case "long" -> new IntegerSchema().format("int64");
-            case "float" -> new NumberSchema().format("float");
-            case "double" -> new NumberSchema().format("double");
+            case "float", "float32" -> new NumberSchema().format("float");
+            case "float64" -> new NumberSchema().format("double");
             case "boolean", "Boolean" -> new BooleanSchema();
             case "string" -> new StringSchema();
             default -> throw new LibSLParsingException("Unexpected value: " + typeName);

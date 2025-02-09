@@ -23,8 +23,6 @@ import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.*;
 
-import static java.util.regex.Matcher.quoteReplacement;
-
 @Slf4j
 public final class ContractsApiImplementationGenerator extends ApiImplementationGenerator {
 
@@ -51,7 +49,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         TypeName returnTypeName = TypeName.get(returnType);
         methodBuilder.returns(returnTypeName);
 
-        // if have contracts use them to generate method body
+        // if it has contracts use them to generate method body
         if (library != null) {
             Automaton automaton = getAutomaton(interfaceName, library);
             if (automaton != null) {
@@ -85,8 +83,9 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         // Генерируем методы интерфейса
         for (Method method : apiInterface.getMethods()) {
-            FieldSpec.Builder fieldBuilder = FieldSpec.builder(Integer.class, method.getName(), Modifier.PRIVATE)
-                    .initializer("1");
+            FieldSpec.Builder fieldBuilder =
+                    FieldSpec.builder(Integer.class, method.getName(), Modifier.PRIVATE)
+                            .initializer("1");
             classBuilder.addField(fieldBuilder.build());
             classBuilder.addMethod(generateMethodStub(getApiInterfaceName(apiInterface), method));
         }
@@ -115,15 +114,21 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
     private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures, String methodName, Parameter[] parameters) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
 
-        codeBlockBuilder.beginControlFlow("if (!($L))", generateContractsCondition(requires));
-        codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition failed");
-        codeBlockBuilder.endControlFlow();
+        generateCheckRequires(requires, codeBlockBuilder);
 
         Class<?> returnClass = getReturnClassFromResponseEntity(returnType);
 
         codeBlockBuilder.add(generateResponseResultBasedOnContracts(returnClass, ensures, methodName, parameters));
 
         return methodBuilder.addCode(codeBlockBuilder.build()).build();
+    }
+
+    private static void generateCheckRequires(List<Contract> requires, CodeBlock.Builder codeBlockBuilder) {
+        if (!requires.isEmpty()) {
+            codeBlockBuilder.beginControlFlow("if (!($L))", generateContractsCondition(requires));
+            codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition failed");
+            codeBlockBuilder.endControlFlow();
+        }
     }
 
     @NotNull
@@ -152,15 +157,45 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
         ModelData modelData = new ModelData(returnClass, ensures, parameters);
 
+        createModel(codeBlockBuilder);
+
+        createModelVariables(codeBlockBuilder, modelData);
+
+        generateContracts(codeBlockBuilder, modelData);
+
+        createSolverAndFindSolutions(methodName, codeBlockBuilder);
+
+        checkIsSolutionExists(codeBlockBuilder);
+
+        restoreObjectWithSolution(codeBlockBuilder, modelData, returnClass);
+
+        returnAnswer(codeBlockBuilder);
+
+        return codeBlockBuilder.build();
+    }
+
+    private static void createModel(CodeBlock.Builder codeBlockBuilder) {
         codeBlockBuilder.add("\n// Create model\n");
         codeBlockBuilder.addStatement("$T model = new $T()", Model.class, Model.class);
+    }
 
-        // generate ensures conditions
-        createModelVariables(codeBlockBuilder, modelData);
+    private static void generateContracts(CodeBlock.Builder codeBlockBuilder, ModelData modelData) {
         codeBlockBuilder.add("\n// Add contracts\n");
         codeBlockBuilder.add(modelData.getModelContracts());
+    }
 
-        // create solver and find solution
+    private static void checkIsSolutionExists(CodeBlock.Builder codeBlockBuilder) {
+        codeBlockBuilder.add("\n// Check if solution is found\n");
+        codeBlockBuilder.beginControlFlow("if (solution == null)");
+        codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Cannot find solution for the given constraints");
+        codeBlockBuilder.endControlFlow();
+    }
+
+    private static void returnAnswer(CodeBlock.Builder codeBlockBuilder) {
+        codeBlockBuilder.addStatement("return $T.ok(answer)", ResponseEntity.class);
+    }
+
+    private static void createSolverAndFindSolutions(String methodName, CodeBlock.Builder codeBlockBuilder) {
         codeBlockBuilder.add("\n// Create solver and find solution\n");
         codeBlockBuilder.addStatement("$T solver = model.getSolver()", Solver.class);
         codeBlockBuilder.addStatement("$T solution = solver.findSolution()", Solution.class);
@@ -173,21 +208,6 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         codeBlockBuilder.addStatement("solution = solver.findSolution()");
         codeBlockBuilder.addStatement("$L = 2", methodName);
         codeBlockBuilder.endControlFlow();
-
-        // check if solution is found
-        codeBlockBuilder.add("\n// Check if solution is found\n");
-        codeBlockBuilder.beginControlFlow("if (solution == null)");
-        codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Cannot find solution for the given constraints");
-        codeBlockBuilder.endControlFlow();
-
-        // generate return statement
-        codeBlockBuilder.add("\n// Restore object with solution\n");
-        restoreObjectWithSolution(codeBlockBuilder, modelData, returnClass);
-
-        // return restored object
-        codeBlockBuilder.addStatement("return $T.ok(answer)", ResponseEntity.class);
-
-        return codeBlockBuilder.build();
     }
 
     private static String contractExpressionToDumpString(Contract contract) {
@@ -196,6 +216,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
     private void restoreObjectWithSolution(CodeBlock.Builder codeBlockBuilder, ModelData modelData, Class<?> returnClass) {
         // create object with random values and then restore it with solution
+        codeBlockBuilder.add("\n// Restore object with solution\n");
         codeBlockBuilder.addStatement("$T answer = $L", returnClass, generateRandomGeneratedObject(returnClass));
 
         modelData.restoreModelContracts(codeBlockBuilder);
@@ -204,29 +225,30 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
     private void createModelVariables(CodeBlock.Builder codeBlockBuilder, ModelData modelData) {
         codeBlockBuilder.add("\n// Create model variables\n");
         for (ModelVariable mv : modelData.getFieldsAffectedByContracts()) {
-            ModelVariable mp = modelData.isParameter(mv);
-            if (mp != null) {
-                createModelVariableParameter(codeBlockBuilder, mv, mp);
+            if (mv.isParameter()) {
+                createModelVariableParameter(codeBlockBuilder, mv, modelData);
             } else {
-                createModelVariable(codeBlockBuilder, mv);
+                createModelVariableResultField(codeBlockBuilder, mv);
             }
         }
     }
 
-    private void createModelVariableParameter(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable, ModelVariable modelParameter) {
+    private void createModelVariableParameter(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable, ModelData modelData) {
         Class<?> type = modelVariable.type();
 
+        String path = modelData.restorePathOfParameter(modelVariable);
+
         if (type == Integer.class) {
-            codeBlockBuilder.addStatement("$T $L = model.intVar($S, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), modelParameter.name());
+            codeBlockBuilder.addStatement("$T $L = model.intVar($S, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), path);
         } else if (type == Double.class) {
-            codeBlockBuilder.addStatement("$T $L = model.realVar($S, $L)", RealVar.class, modelVariable.name(), modelVariable.name(), modelParameter.name());
+            codeBlockBuilder.addStatement("$T $L = model.realVar($S, $L)", RealVar.class, modelVariable.name(), modelVariable.name(), path);
         } else {
             throw new GenerationImplementationException("Unsupported type " + type.getName());
         }
 
     }
 
-    private void createModelVariable(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable) {
+    private void createModelVariableResultField(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable) {
         Class<?> type = modelVariable.type();
 
         if (type == Integer.class) {

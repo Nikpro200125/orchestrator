@@ -1,8 +1,6 @@
 package com.nvp.orchestrator.service.generator;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.nvp.orchestrator.exceptions.GenerationServiceException;
 import com.nvp.orchestrator.service.implementation.generator.ContractsApiImplementationGenerator;
 import com.nvp.orchestrator.service.util.LibSLParserServiceImpl;
@@ -23,6 +21,7 @@ public final class ContractsServiceGenerator extends ServiceGenerator {
     private static final String LIB_SL_FILE_NAME = "libsl.lsl";
 
     private final LibSLParserServiceImpl libSLParserService;
+    private final ObjectMapper mapper;
 
     @Override
     public String generateImplementation(MultipartFile libSLFile) {
@@ -43,10 +42,8 @@ public final class ContractsServiceGenerator extends ServiceGenerator {
         return buildAndDeployService(workingDirectory);
     }
 
-    private Path generateOpenApiSpec(Path workingDir,Library lib) {
+    private Path generateOpenApiSpec(Path workingDir, Library lib) {
         OpenAPI openApiSpec = libSLParserService.generateOpenAPI(lib);
-
-        ObjectMapper mapper = getObjMapper();
 
         Path openApiSpecPath = workingDir.resolve(OPENAPI_SPEC_FILE_NAME);
 
@@ -62,19 +59,11 @@ public final class ContractsServiceGenerator extends ServiceGenerator {
     }
 
     private void generateApi(Path tempDir, Library library) {
-        ContractsApiImplementationGenerator generator = new ContractsApiImplementationGenerator(tempDir, library);
-        try {
+        try (ContractsApiImplementationGenerator generator = new ContractsApiImplementationGenerator(tempDir, library)) {
             generator.generate();
         } catch (Exception e) {
             log.error("Failed to generate API implementations", e);
             throw new GenerationServiceException("Failed to generate API implementations");
         }
-    }
-
-    private static ObjectMapper getObjMapper() {
-        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-        mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
-        mapper.setSerializationInclusion(JsonInclude.Include.NON_DEFAULT);
-        return mapper;
     }
 }

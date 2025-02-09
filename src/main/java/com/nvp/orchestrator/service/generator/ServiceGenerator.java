@@ -15,7 +15,7 @@ import java.util.stream.Stream;
 
 
 @Slf4j
-public abstract sealed  class ServiceGenerator permits ContractsServiceGenerator, RandomServiceGenerator {
+public abstract sealed class ServiceGenerator permits ContractsServiceGenerator, RandomServiceGenerator {
 
     protected static final String RESOURCE_ROOT_DIR = "src/main/resources/templates/root";
     protected static final String PROJECT_ROOT_DIR = "src/main/java/org/openapitools";

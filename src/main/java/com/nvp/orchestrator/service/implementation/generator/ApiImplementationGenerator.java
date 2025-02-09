@@ -14,6 +14,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.javapoet.*;
 
 import javax.lang.model.element.Modifier;
+import java.io.Closeable;
+import java.io.IOException;
 import java.lang.reflect.*;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -28,9 +30,10 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @RequiredArgsConstructor
-public sealed abstract class ApiImplementationGenerator permits ContractsApiImplementationGenerator, RandomApiImplementationGenerator {
+public sealed abstract class ApiImplementationGenerator implements Closeable permits ContractsApiImplementationGenerator, RandomApiImplementationGenerator {
 
     private final Path generatedProjectPath;
+    private URLClassLoader urlClassLoader;
 
     @SneakyThrows
     public void generate() {
@@ -42,7 +45,7 @@ public sealed abstract class ApiImplementationGenerator permits ContractsApiImpl
     }
 
     private Collection<Class<?>> getClassesFromPackage() throws MalformedURLException {
-        URLClassLoader urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
+        urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
         Path classesPath = generatedProjectPath.resolve("target/classes/org/openapitools/api");
         URL url = classesPath.toUri().toURL();
         Scanner scanner = Scanners.SubTypes.filterResultsBy(s -> true);
@@ -217,5 +220,12 @@ public sealed abstract class ApiImplementationGenerator permits ContractsApiImpl
                 .max(Comparator.comparingInt(Constructor::getParameterCount)).orElseThrow(
                         () -> new GenerationImplementationException("No public constructors found for class " + customClass.getName())
                 );
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (urlClassLoader != null) {
+            urlClassLoader.close();
+        }
     }
 }

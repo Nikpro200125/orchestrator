@@ -28,7 +28,8 @@ public class OpenApiGenerator {
                         "useSpringBoot3=true," +
                         "java8=true," +
                         "skipDefaultInterface=true," +
-                        "additionalModelTypeAnnotations=@lombok.AllArgsConstructor@lombok.NoArgsConstructor"
+                        "generatedConstructorWithRequiredArgs=false," +
+                        "generateConstructorWithAllArgs=true"
         );
         Process process = pb.start();
         StringBuilder processLog = new StringBuilder();

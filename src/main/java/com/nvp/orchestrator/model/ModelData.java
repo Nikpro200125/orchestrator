@@ -1,10 +1,10 @@
 package com.nvp.orchestrator.model;
 
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.research.libsl.nodes.*;
-import org.springframework.expression.spel.ast.RealLiteral;
 import org.springframework.javapoet.CodeBlock;
 
 import java.lang.reflect.Parameter;
@@ -15,8 +15,8 @@ import static java.util.regex.Matcher.quoteReplacement;
 @Slf4j
 @Getter
 public class ModelData {
-    private final static String FIELD_DELIMITER = "$";
-    private final static String RESULT_FIELD = "result";
+    public final static String FIELD_DELIMITER = "$";
+    public final static String RESULT_FIELD = "result";
 
     private final List<String> allFields = new ArrayList<>();
     private final Class<?> returnClass;
@@ -33,14 +33,6 @@ public class ModelData {
         this.modelContracts = generateModelContracts();
     }
 
-    public ModelVariable isParameter(ModelVariable mv) {
-        return methodParameters
-                .stream()
-                .filter(mp -> mv.name().replaceFirst(quoteReplacement(FIELD_DELIMITER), "").equals(mp.name()))
-                .findFirst()
-                .orElse(null);
-    }
-
     private Set<ModelVariable> gatherParameters(Parameter[] parameters) {
         Set<ModelVariable> fields = new HashSet<>();
         for (Parameter parameter : parameters) {
@@ -49,9 +41,24 @@ public class ModelData {
         return fields;
     }
 
+    public String restorePathOfParameter(@NotEmpty ModelVariable parameter) {
+        String path = parameter.name().replaceFirst(quoteReplacement(FIELD_DELIMITER), "");
+        String [] pathArray = getFieldRelativePath(parameter.name());
+        if (pathArray.length == 0) {
+            return path;
+        }
+
+        StringBuilder pathBuilder = new StringBuilder(path.substring(0, path.indexOf(FIELD_DELIMITER)));
+
+        for (String s : pathArray) {
+            pathBuilder.append(".get").append(capitalizeFirstLetter(s)).append("()");
+        }
+        return pathBuilder.toString();
+    }
+
     public void restoreModelContracts(CodeBlock.Builder codeBlockBuilder) {
         for (ModelVariable field : getFieldsToRestore()) {
-            String[] path = getFieldPath(field.name());
+            String[] path = getFieldRelativePath(field.name());
             if (path.length == 0) {
                 codeBlockBuilder.addStatement("answer = $L", getValueSetterByClass(field));
             } else {
@@ -68,7 +75,7 @@ public class ModelData {
     }
 
     private List<ModelVariable> getFieldsToRestore() {
-        return fieldsAffectedByContracts.stream().filter(mv -> methodParameters.stream().noneMatch(mp -> mv.name().equals(FIELD_DELIMITER + mp.name()))).toList();
+        return fieldsAffectedByContracts.stream().filter(mv -> !mv.isParameter()).toList();
     }
 
     private static String capitalizeFirstLetter(String str) {
@@ -100,11 +107,9 @@ public class ModelData {
     private CodeBlock generateModelContracts(Expression expression) {
         CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
 
-        if (!(expression instanceof BinaryOpExpression)) {
+        if (!(expression instanceof BinaryOpExpression binaryOpExpression)) {
             throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
         }
-
-        BinaryOpExpression binaryOpExpression = (BinaryOpExpression) expression;
 
         CodeBlock left = expressionToCodeBlock(binaryOpExpression.getLeft());
 
@@ -112,34 +117,12 @@ public class ModelData {
 
         codeBlockBuilder.add("$L.$L($L)", left, convertOpToMethod(binaryOpExpression.getOp()), right);
 
-//            if (binaryOpExpression.getLeft() instanceof VariableAccess leftVariableAccess
-//                    && binaryOpExpression.getRight() instanceof VariableAccess rightVariableAccess)
-//            {
-//
-//                ModelVariable leftField = getFieldVariable(leftVariableAccess);
-//                ModelVariable rightField = getFieldVariable(rightVariableAccess);
-//
-//                codeBlockBuilder.add("$L.$L($L)", leftField.name(), convertOpToMethod(binaryOpExpression.getOp()), rightField.name());
-//
-//            } else if (binaryOpExpression.getLeft() instanceof VariableAccess leftVariableAccess) {
-//                ModelVariable leftField = getFieldVariable(leftVariableAccess);
-//                CodeBlock right = generateModelContracts(binaryOpExpression.getRight());
-//                codeBlockBuilder.add("$L.$L($L)", leftField.name(), convertOpToMethod(binaryOpExpression.getOp()), right);
-//            } else if (binaryOpExpression.getRight() instanceof VariableAccess rightVariableAccess) {
-//                CodeBlock left = generateModelContracts(binaryOpExpression.getLeft());
-//                ModelVariable rightField = getFieldVariable(rightVariableAccess);
-//                codeBlockBuilder.add("($L).$L($L)", left, convertOpToMethod(binaryOpExpression.getOp()), rightField.name());
-//            } else {
-//                CodeBlock left = generateModelContracts(binaryOpExpression.getLeft());
-//                CodeBlock right = generateModelContracts(binaryOpExpression.getRight());
-//                codeBlockBuilder.add("($L).$L($L)", left, convertOpToMethod(binaryOpExpression.getOp()), right);
-//            }
         return codeBlockBuilder.build();
     }
 
     private CodeBlock expressionToCodeBlock(Expression expression) {
         return switch (expression) {
-            case VariableAccess leftVariableAccess -> CodeBlock.of("$L", getFieldVariable(leftVariableAccess).name());
+            case VariableAccess leftVariableAccess -> CodeBlock.of("$L", convertVariableAccessToStringName(leftVariableAccess));
             case BinaryOpExpression leftBinaryOpExpression -> generateModelContracts(leftBinaryOpExpression);
             case IntegerLiteral leftIntegerLiteral -> CodeBlock.of("$L", leftIntegerLiteral.getValue());
             default -> throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
@@ -189,9 +172,7 @@ public class ModelData {
                     fields.addAll(getFieldNameIfExist(unaryOpExpression.getValue()));
             case VariableAccess variableAccess -> {
                 ModelVariable fieldName = getFieldVariable(variableAccess);
-                if (fieldName.type() != null) {
-                    fields.add(fieldName);
-                }
+                fields.add(fieldName);
             }
             case null -> throw new IllegalArgumentException("Expression is null");
             default -> {
@@ -202,29 +183,50 @@ public class ModelData {
         return fields;
     }
 
+    private String convertVariableAccessToStringName(VariableAccess variableAccess) {
+        String dumpedToString = variableAccess.dumpToString();
+        return FIELD_DELIMITER + dumpedToString.replaceAll("\\.", quoteReplacement(FIELD_DELIMITER));
+    }
+
     private ModelVariable getFieldVariable(VariableAccess variableAccess) {
         String dumpedToString = variableAccess.dumpToString();
+        String replacedName = convertVariableAccessToStringName(variableAccess);
         if (dumpedToString.contains(RESULT_FIELD)) {
-            String name = dumpedToString.replaceAll("\\.", quoteReplacement(FIELD_DELIMITER));
-            Class<?> fieldClass = getClassByFieldName(name);
-            return new ModelVariable(FIELD_DELIMITER + name, fieldClass);
+            Class<?> fieldClass = getClassByFieldNameOfResult(replacedName);
+            return new ModelVariable(replacedName, fieldClass);
         } else {
-            ModelVariable modelVariable = methodParameters.stream().filter(mv -> mv.name().equals(dumpedToString)).findFirst().orElseThrow();
-            return new ModelVariable(FIELD_DELIMITER + modelVariable.name(), modelVariable.type());
+            ModelVariable modelVariable = methodParameters.stream().filter(mp -> mp.name().equals(variableAccess.getFieldName())).findFirst().orElseThrow();
+            Class<?> fieldClass = getClassByFieldName(replacedName, modelVariable.type());
+            return new ModelVariable(replacedName, fieldClass);
         }
     }
 
-    private Class<?> getClassByFieldName(String fieldName) {
-        String[] path = getFieldPath(fieldName);
-        Class<?> currentClass = returnClass;
+    private Class<?> getClassByFieldName(String fieldName, Class<?> sourceClass) {
+        String[] path = getFieldRelativePath(fieldName);
+        Class<?> currentClass = sourceClass;
         for (String field : path) {
             currentClass = getFieldClass(currentClass, field);
         }
         return currentClass;
     }
 
-    private static String @NotNull [] getFieldPath(String fieldName) {
-        String fieldPath = fieldName.replaceFirst("^(?:" + quoteReplacement(FIELD_DELIMITER) + ")?" + RESULT_FIELD + "(?:" + quoteReplacement(FIELD_DELIMITER) + ")?", "");
+    private Class<?> getClassByFieldNameOfResult(String fieldName) {
+        return getClassByFieldName(fieldName, returnClass);
+    }
+
+    /**
+     * path from the root of the object <br/>
+     * e.g. $a$b$c -> [b, c] <br/>
+     * e.g. $result$b$c -> [b, c] <br/>
+     * e.g. $x -> [] <br/>
+     * e.g. x -> [x] <br/>
+     * e.g. x$y&b -> [y, b] <br/>
+     */
+    private static String @NotNull [] getFieldRelativePath(String fieldName) {
+        if (fieldName.matches("^" + quoteReplacement(FIELD_DELIMITER) + "[a-z]+$")) {
+            return new String[0];
+        }
+        String fieldPath = fieldName.replaceFirst("^(?:" + quoteReplacement(FIELD_DELIMITER) + ")?" + "[a-z]+" + quoteReplacement(FIELD_DELIMITER), "");
         return fieldPath.isBlank() ? new String[0] : fieldPath.split(quoteReplacement(FIELD_DELIMITER));
     }
 
