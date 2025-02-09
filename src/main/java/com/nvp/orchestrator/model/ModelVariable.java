@@ -1,7 +1,5 @@
 package com.nvp.orchestrator.model;
 
-import static java.util.regex.Matcher.quoteReplacement;
-
 public record ModelVariable(String name, Class<?> type) {
     public ModelVariable {
         if (name == null || type == null) {
@@ -10,6 +8,6 @@ public record ModelVariable(String name, Class<?> type) {
     }
 
     public boolean isParameter() {
-        return !name.matches("^(?:" + quoteReplacement(ModelData.FIELD_DELIMITER) + ")?" + ModelData.RESULT_FIELD + ".*");
+        return !name.startsWith("$result");
     }
 }

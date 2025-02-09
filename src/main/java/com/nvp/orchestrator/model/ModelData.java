@@ -43,7 +43,7 @@ public class ModelData {
 
     public String restorePathOfParameter(@NotEmpty ModelVariable parameter) {
         String path = parameter.name().replaceFirst(quoteReplacement(FIELD_DELIMITER), "");
-        String [] pathArray = getFieldRelativePath(parameter.name());
+        String[] pathArray = getFieldRelativePath(parameter.name());
         if (pathArray.length == 0) {
             return path;
         }
@@ -168,8 +168,7 @@ public class ModelData {
                 fields.addAll(getFieldNameIfExist(binaryOpExpression.getLeft()));
                 fields.addAll(getFieldNameIfExist(binaryOpExpression.getRight()));
             }
-            case UnaryOpExpression unaryOpExpression ->
-                    fields.addAll(getFieldNameIfExist(unaryOpExpression.getValue()));
+            case UnaryOpExpression unaryOpExpression -> fields.addAll(getFieldNameIfExist(unaryOpExpression.getValue()));
             case VariableAccess variableAccess -> {
                 ModelVariable fieldName = getFieldVariable(variableAccess);
                 fields.add(fieldName);
