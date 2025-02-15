@@ -84,9 +84,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         // Генерируем методы интерфейса
         for (Method method : apiInterface.getMethods()) {
-            FieldSpec.Builder fieldBuilder =
-                    FieldSpec.builder(Integer.class, method.getName(), Modifier.PRIVATE)
-                            .initializer("1");
+            FieldSpec.Builder fieldBuilder = FieldSpec.builder(Integer.class, method.getName(), Modifier.PRIVATE).initializer("1");
             classBuilder.addField(fieldBuilder.build());
             classBuilder.addMethod(generateMethodStub(getApiInterfaceName(apiInterface), method));
         }
@@ -112,7 +110,8 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         return library.getAutomata().stream().filter(a -> a.getName().equals(interfaceName)).findFirst().orElse(null);
     }
 
-    private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures, String methodName, Parameter[] parameters) {
+    private MethodSpec generateMethodResponseCodeBlockFromContracts(
+            MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures, String methodName, Parameter[] parameters) {
         CodeBlock.Builder cbb = CodeBlock.builder();
 
         generateCheckRequires(requires, cbb);
@@ -168,7 +167,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         createModelVariables(cbb, modelData);
 
-        generateContracts(cbb, modelData);
+        generateContracts(cbb, modelData, methodName);
 
         createSolverAndFindSolutions(methodName, cbb);
 
@@ -184,9 +183,9 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         cbb.addStatement("$T model = new $T()", Model.class, Model.class);
     }
 
-    private static void generateContracts(CodeBlock.Builder cbb, ModelData modelData) {
+    private static void generateContracts(CodeBlock.Builder cbb, ModelData modelData , String methodName) {
         cbb.add("\n// Add contracts\n");
-        cbb.add(modelData.getModelContracts());
+        cbb.add(modelData.generateModelContracts(methodName));
     }
 
     private static void checkIsSolutionExists(CodeBlock.Builder cbb) {
@@ -265,6 +264,8 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
             cbb.addStatement("$T $L = model.realVar($S, $L, $L, 0.01)", RealVar.class, modelVariable.name(), modelVariable.name(), -1000000.0, 1000000.0);
         } else if (type == Boolean.class) {
             cbb.addStatement("$T $L = model.boolVar($S)", BoolVar.class, modelVariable.name(), modelVariable.name());
+        } else if (type == String.class) {
+            cbb.addStatement("$T $L = new $T()", String.class, modelVariable.name(), String.class);
         } else {
             throw new GenerationImplementationException("Unsupported type " + type.getName());
         }

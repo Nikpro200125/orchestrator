@@ -24,11 +24,13 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok")
     implementation("org.reflections:reflections:0.10.2")
     implementation("com.github.vpa-research:libsl-parser:tr-v0.1")
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     implementation("io.swagger.core.v3:swagger-core:2.2.27")
-    implementation("org.choco-solver:choco-solver:4.10.18")
+    compileOnly("org.choco-solver:choco-solver:4.10.18")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
+    compileOnly("com.github.mifmif:generex:1.0.2")
+
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
 
 tasks.withType<Test> {

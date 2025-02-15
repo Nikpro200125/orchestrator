@@ -1,5 +1,6 @@
 package com.nvp.orchestrator.model;
 
+import com.mifmif.common.regex.Generex;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
@@ -9,6 +10,7 @@ import org.springframework.javapoet.CodeBlock;
 
 import java.lang.reflect.Parameter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static java.util.regex.Matcher.quoteReplacement;
 
@@ -17,20 +19,20 @@ import static java.util.regex.Matcher.quoteReplacement;
 public class ModelData {
     public final static String FIELD_DELIMITER = "$";
     public final static String RESULT_FIELD = "result";
+    private final static String REGULAR_ENSURE = "rex";
+    private final static List<Class<?>> CONTRACT_SUPPORTED_TYPES = List.of(Integer.class, Double.class, Boolean.class);
 
     private final List<String> allFields = new ArrayList<>();
     private final Class<?> returnClass;
     private final List<Contract> ensures;
-    private final Set<ModelVariable> fieldsAffectedByContracts;
-    private final CodeBlock modelContracts;
+    private final List<ContractWithData> contractsWithData = new ArrayList<>();
     private final Set<ModelVariable> methodParameters;
 
     public ModelData(@NotNull Class<?> returnClass, @NotNull List<Contract> ensures, Parameter[] parameters) {
         this.returnClass = returnClass;
         this.ensures = ensures;
         this.methodParameters = gatherParameters(parameters);
-        this.fieldsAffectedByContracts = gatherFieldsAffectedByContracts();
-        this.modelContracts = generateModelContracts();
+        gatherFieldsAffectedByContracts();
     }
 
     private Set<ModelVariable> gatherParameters(Parameter[] parameters) {
@@ -75,7 +77,10 @@ public class ModelData {
     }
 
     private List<ModelVariable> getFieldsToRestore() {
-        return fieldsAffectedByContracts.stream().filter(mv -> !mv.isParameter()).toList();
+        return contractsWithData.stream()
+                .flatMap(cwd -> cwd.variables().stream())
+                .filter(mv -> !mv.isParameter())
+                .toList();
     }
 
     private static String capitalizeFirstLetter(String str) {
@@ -84,29 +89,81 @@ public class ModelData {
 
     private CodeBlock getValueSetterByClass(ModelVariable mv) {
         CodeBlock.Builder cbb = CodeBlock.builder();
-        if (mv.type() == Integer.class) {
-            cbb.add("$L.getValue()", mv.name());
-        } else if (mv.type() == Double.class) {
-            cbb.add("$T.round(($L.getLB() + $L.getUB()) * 50) / 100.0", Math.class, mv.name(), mv.name());
-        } else if (mv.type() == Boolean.class) {
-            cbb.add("$L.getValue() == 1", mv.name());
-        } else {
-            throw new IllegalArgumentException("Unsupported type: " + mv.type());
+        switch (mv.type().getSimpleName()) {
+            case "Integer" -> cbb.add("$L.getValue()", mv.name());
+            case "Double" -> cbb.add("$T.round(($L.getLB() + $L.getUB()) * 50) / 100.0", Math.class, mv.name(), mv.name());
+            case "Boolean" -> cbb.add("$L.getValue() == 1", mv.name());
+            case "String" -> cbb.add("$L", mv.name());
+            default -> throw new IllegalArgumentException("Unsupported type: " + mv.type());
         }
         return cbb.build();
     }
 
-    private CodeBlock generateModelContracts() {
+    /**<pre>
+     * Generates model contracts for the given ensures
+     * Without regular ensures
+     * </pre>
+     */
+    public CodeBlock generateModelContracts(String methodName) {
         CodeBlock.Builder cbb = CodeBlock.builder();
-        for (Contract contract : ensures) {
-            CodeBlock.Builder contractCodeBlockBuilder = CodeBlock.builder();
-            contractCodeBlockBuilder.add(generateModelContracts(contract.getExpression())).add(".post()");
-            cbb.addStatement(contractCodeBlockBuilder.build());
+
+        List<Contract> ensuresOfPrimitiveTypes = getEnsuresOfPrimitiveTypes();
+        cbb.add("\n// Primitive types\n");
+        for (Contract contract : ensuresOfPrimitiveTypes) {
+            CodeBlock.Builder contractCbb = CodeBlock.builder();
+            contractCbb.add(generateModelContracts(contract.getExpression())).add(".post()");
+            cbb.addStatement(contractCbb.build());
         }
+
+        List<Contract> ensuresOfNonPrimitiveTypes = getEnsuresOfNonPrimitiveTypes();
+        cbb.add("\n// Non-primitive types\n");
+        for (Contract contract : ensuresOfNonPrimitiveTypes) {
+            cbb.addStatement(generateNonModelContracts(contract.getExpression()));
+        }
+
+        List<Contract> regularEnsures = getRegularEnsures();
+        cbb.add("\n// Regular ensures\n");
+        for (Contract contract : regularEnsures) {
+            cbb.addStatement(generateRegularEnsures(contract.getExpression(), methodName));
+        }
+
         return cbb.build();
     }
 
-    private CodeBlock generateModelContracts(Expression expression) {
+    private List<Contract> getEnsuresOfPrimitiveTypes() {
+        return contractsWithData.stream()
+                .filter(cwd -> cwd.variables().stream().map(ModelVariable::type).allMatch(CONTRACT_SUPPORTED_TYPES::contains))
+                .map(ContractWithData::contract)
+                .toList();
+    }
+
+    private List<Contract> getEnsuresOfNonPrimitiveTypes() {
+        return contractsWithData.stream()
+                .filter(cwd ->
+                        cwd.variables()
+                                .stream()
+                                .map(ModelVariable::type)
+                                .anyMatch(t -> !CONTRACT_SUPPORTED_TYPES.contains(t)))
+                .map(ContractWithData::contract)
+                .filter(contract -> !REGULAR_ENSURE.equals(contract.getName()))
+                .toList();
+    }
+
+    private List<Contract> getRegularEnsures() {
+        return contractsWithData.stream()
+                .map(ContractWithData::contract)
+                .filter(contract -> REGULAR_ENSURE.equals(contract.getName()))
+                .toList();
+    }
+
+    public Set<ModelVariable> getFieldsAffectedByContracts() {
+        // Model variables unique by name
+        return contractsWithData.stream()
+                .flatMap(cwd -> cwd.variables().stream())
+                .collect(Collectors.toSet());
+    }
+
+    private static CodeBlock generateModelContracts(Expression expression) {
         CodeBlock.Builder cbb = CodeBlock.builder();
 
         if (!(expression instanceof BinaryOpExpression binaryOpExpression)) {
@@ -122,13 +179,38 @@ public class ModelData {
         return cbb.build();
     }
 
-    private CodeBlock expressionToCodeBlock(Expression expression) {
+    private static CodeBlock generateNonModelContracts(Expression expression) {
+        if (expression instanceof BinaryOpExpression binaryOpExpression) {
+            CodeBlock.Builder cbb = CodeBlock.builder();
+            CodeBlock left = expressionToCodeBlock(binaryOpExpression.getLeft());
+            CodeBlock right = expressionToCodeBlock(binaryOpExpression.getRight());
+            cbb.add("$L = $L", left, right);
+            return cbb.build();
+        } else {
+            throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
+        }
+    }
+
+    private static CodeBlock generateRegularEnsures(Expression expression, String methodName) {
+        if (expression instanceof BinaryOpExpression binaryOpExpression) {
+            CodeBlock.Builder cbb = CodeBlock.builder();
+            CodeBlock left = expressionToCodeBlock(binaryOpExpression.getLeft());
+            CodeBlock right = expressionToCodeBlock(binaryOpExpression.getRight());
+            cbb.add("$L = (new $T($L)).getMatchedString($L)", left, Generex.class, right, methodName);
+            return cbb.build();
+        } else {
+            throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
+        }
+    }
+
+    private static CodeBlock expressionToCodeBlock(Expression expression) {
         return switch (expression) {
             case VariableAccess variableAccess -> CodeBlock.of("$L", convertVariableAccessToStringName(variableAccess));
             case BinaryOpExpression binaryOpExpression -> generateModelContracts(binaryOpExpression);
             case IntegerLiteral integerLiteral -> CodeBlock.of("$L", integerLiteral.getValue());
             case FloatLiteral floatLiteral -> CodeBlock.of("$L", floatLiteral.getValue());
             case BoolLiteral boolLiteral -> CodeBlock.of("$L", boolLiteral.getValue() ? 1 : 0);
+            case StringLiteral stringLiteral -> CodeBlock.of("$S", stringLiteral.getValue());
             default -> throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
         };
     }
@@ -151,12 +233,12 @@ public class ModelData {
         };
     }
 
-    private Set<ModelVariable> gatherFieldsAffectedByContracts() {
-        Set<ModelVariable> fields = new HashSet<>();
+    private void gatherFieldsAffectedByContracts() {
         for (Contract contract : ensures) {
-            fields.addAll(gatherFieldsAffectedByContract(contract));
+            Set<ModelVariable> variables = gatherFieldsAffectedByContract(contract);
+            ContractWithData contractWithData = new ContractWithData(contract, new ArrayList<>(variables));
+            contractsWithData.add(contractWithData);
         }
-        return fields;
     }
 
     private Set<ModelVariable> gatherFieldsAffectedByContract(Contract contract) {
@@ -184,11 +266,6 @@ public class ModelData {
         return fields;
     }
 
-    private String convertVariableAccessToStringName(VariableAccess variableAccess) {
-        String dumpedToString = variableAccess.dumpToString();
-        return FIELD_DELIMITER + dumpedToString.replaceAll("\\.", quoteReplacement(FIELD_DELIMITER));
-    }
-
     private ModelVariable getFieldVariable(VariableAccess variableAccess) {
         String dumpedToString = variableAccess.dumpToString();
         String replacedName = convertVariableAccessToStringName(variableAccess);
@@ -202,6 +279,15 @@ public class ModelData {
         }
     }
 
+    private static String convertVariableAccessToStringName(VariableAccess variableAccess) {
+        String dumpedToString = variableAccess.dumpToString();
+        return FIELD_DELIMITER + dumpedToString.replaceAll("\\.", quoteReplacement(FIELD_DELIMITER));
+    }
+
+    private Class<?> getClassByFieldNameOfResult(String fieldName) {
+        return getClassByFieldName(fieldName, returnClass);
+    }
+
     private Class<?> getClassByFieldName(String fieldName, Class<?> sourceClass) {
         String[] path = getFieldRelativePath(fieldName);
         Class<?> currentClass = sourceClass;
@@ -209,10 +295,6 @@ public class ModelData {
             currentClass = getFieldClass(currentClass, field);
         }
         return currentClass;
-    }
-
-    private Class<?> getClassByFieldNameOfResult(String fieldName) {
-        return getClassByFieldName(fieldName, returnClass);
     }
 
     /**

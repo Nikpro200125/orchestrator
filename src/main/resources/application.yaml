@@ -3,4 +3,4 @@ spring:
     name: orchestrator
 logging:
   level:
-    root: INFO
+    root: info
