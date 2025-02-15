@@ -167,7 +167,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         createModelVariables(cbb, modelData);
 
-        generateContracts(cbb, modelData, methodName);
+        generateContracts(cbb, modelData);
 
         createSolverAndFindSolutions(methodName, cbb);
 
@@ -183,9 +183,9 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         cbb.addStatement("$T model = new $T()", Model.class, Model.class);
     }
 
-    private static void generateContracts(CodeBlock.Builder cbb, ModelData modelData , String methodName) {
+    private static void generateContracts(CodeBlock.Builder cbb, ModelData modelData) {
         cbb.add("\n// Add contracts\n");
-        cbb.add(modelData.generateModelContracts(methodName));
+        cbb.add(modelData.generateModelContracts());
     }
 
     private static void checkIsSolutionExists(CodeBlock.Builder cbb) {

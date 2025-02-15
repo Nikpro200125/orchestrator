@@ -104,7 +104,7 @@ public class ModelData {
      * Without regular ensures
      * </pre>
      */
-    public CodeBlock generateModelContracts(String methodName) {
+    public CodeBlock generateModelContracts() {
         CodeBlock.Builder cbb = CodeBlock.builder();
 
         List<Contract> ensuresOfPrimitiveTypes = getEnsuresOfPrimitiveTypes();
@@ -124,7 +124,7 @@ public class ModelData {
         List<Contract> regularEnsures = getRegularEnsures();
         cbb.add("\n// Regular ensures\n");
         for (Contract contract : regularEnsures) {
-            cbb.addStatement(generateRegularEnsures(contract.getExpression(), methodName));
+            cbb.addStatement(generateRegularEnsures(contract.getExpression()));
         }
 
         return cbb.build();
@@ -191,12 +191,12 @@ public class ModelData {
         }
     }
 
-    private static CodeBlock generateRegularEnsures(Expression expression, String methodName) {
+    private static CodeBlock generateRegularEnsures(Expression expression) {
         if (expression instanceof BinaryOpExpression binaryOpExpression) {
             CodeBlock.Builder cbb = CodeBlock.builder();
             CodeBlock left = expressionToCodeBlock(binaryOpExpression.getLeft());
             CodeBlock right = expressionToCodeBlock(binaryOpExpression.getRight());
-            cbb.add("$L = (new $T($L)).getMatchedString($L)", left, Generex.class, right, methodName);
+            cbb.add("$L = (new $T($L)).random()", left, Generex.class, right);
             return cbb.build();
         } else {
             throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
