@@ -129,7 +129,7 @@ public sealed abstract class ApiImplementationGenerator implements Closeable per
             }
 
             if (returnClass.isArray()) {
-                // Генерация пустого массива
+                // Генерация singleton массива
                 return CodeBlock.builder()
                         .add("$T.singletonList($L)", java.util.Collections.class, generateRandomGeneratedObject(returnClass.getComponentType()))
                         .build();

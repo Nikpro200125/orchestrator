@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.chocosolver.solver.Model;
 import org.chocosolver.solver.Solution;
 import org.chocosolver.solver.Solver;
+import org.chocosolver.solver.variables.BoolVar;
 import org.chocosolver.solver.variables.IntVar;
 import org.chocosolver.solver.variables.RealVar;
 import org.jetbrains.annotations.NotNull;
@@ -66,7 +67,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         }
 
         // Не найдены контракты - генерация случайных данных
-        log.error("No contracts found for method {}", method.getName());
+        log.info("No contracts found for method {}", method.getName());
         methodBuilder.addStatement("return $L", generateRandomGeneratedObject(returnType));
 
         return methodBuilder.build();
@@ -112,25 +113,32 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
     }
 
     private MethodSpec generateMethodResponseCodeBlockFromContracts(MethodSpec.Builder methodBuilder, Type returnType, List<Contract> requires, List<Contract> ensures, String methodName, Parameter[] parameters) {
-        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+        CodeBlock.Builder cbb = CodeBlock.builder();
 
-        generateCheckRequires(requires, codeBlockBuilder);
+        generateCheckRequires(requires, cbb);
 
         Class<?> returnClass = getReturnClassFromResponseEntity(returnType);
 
-        codeBlockBuilder.add(generateResponseResultBasedOnContracts(returnClass, ensures, methodName, parameters));
+        generateResponseResultBasedOnContracts(cbb, returnClass, ensures, methodName, parameters);
 
-        return methodBuilder.addCode(codeBlockBuilder.build()).build();
+        return methodBuilder.addCode(cbb.build()).build();
     }
 
-    private static void generateCheckRequires(List<Contract> requires, CodeBlock.Builder codeBlockBuilder) {
+    private static void generateCheckRequires(List<Contract> requires, CodeBlock.Builder cbb) {
         if (!requires.isEmpty()) {
-            codeBlockBuilder.beginControlFlow("if (!($L))", generateContractsCondition(requires));
-            codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition failed");
-            codeBlockBuilder.endControlFlow();
+            cbb.add("\n// Check requires\n");
+            cbb.beginControlFlow("if (!($L))", generateContractsCondition(requires));
+            cbb.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition failed");
+            cbb.endControlFlow();
         }
     }
 
+    /**<pre>
+     * Extracts the return class from the return type of the method.
+     * If the return type is ResponseEntity<T>, then T is returned.
+     * Otherwise, an exception is thrown.
+     * it is assumed that openapi-generator generates only ResponseEntity<T> return types.</pre>
+     **/
     @NotNull
     private static Class<?> getReturnClassFromResponseEntity(Type returnType) {
         if (returnType instanceof ParameterizedType returnClass) {
@@ -143,118 +151,120 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
     }
 
     private static CodeBlock generateContractsCondition(List<Contract> requires) {
-        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+        CodeBlock.Builder cbb = CodeBlock.builder();
         for (int i = 0; i < requires.size(); i++) {
-            codeBlockBuilder.add("($L)", contractExpressionToDumpString(requires.get(i)));
+            cbb.add("($L)", contractExpressionToDumpString(requires.get(i)));
             if (i < requires.size() - 1) {
-                codeBlockBuilder.add(" && ");
+                cbb.add(" && ");
             }
         }
-        return codeBlockBuilder.build();
+        return cbb.build();
     }
 
-    private CodeBlock generateResponseResultBasedOnContracts(Class<?> returnClass, List<Contract> ensures, String methodName, Parameter[] parameters) {
-        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+    private void generateResponseResultBasedOnContracts(CodeBlock.Builder cbb, Class<?> returnClass, List<Contract> ensures, String methodName, Parameter[] parameters) {
         ModelData modelData = new ModelData(returnClass, ensures, parameters);
 
-        createModel(codeBlockBuilder);
+        createModel(cbb);
 
-        createModelVariables(codeBlockBuilder, modelData);
+        createModelVariables(cbb, modelData);
 
-        generateContracts(codeBlockBuilder, modelData);
+        generateContracts(cbb, modelData);
 
-        createSolverAndFindSolutions(methodName, codeBlockBuilder);
+        createSolverAndFindSolutions(methodName, cbb);
 
-        checkIsSolutionExists(codeBlockBuilder);
+        checkIsSolutionExists(cbb);
 
-        restoreObjectWithSolution(codeBlockBuilder, modelData, returnClass);
+        restoreObjectWithSolution(cbb, modelData, returnClass);
 
-        returnAnswer(codeBlockBuilder);
-
-        return codeBlockBuilder.build();
+        returnAnswer(cbb);
     }
 
-    private static void createModel(CodeBlock.Builder codeBlockBuilder) {
-        codeBlockBuilder.add("\n// Create model\n");
-        codeBlockBuilder.addStatement("$T model = new $T()", Model.class, Model.class);
+    private static void createModel(CodeBlock.Builder cbb) {
+        cbb.add("\n// Create model\n");
+        cbb.addStatement("$T model = new $T()", Model.class, Model.class);
     }
 
-    private static void generateContracts(CodeBlock.Builder codeBlockBuilder, ModelData modelData) {
-        codeBlockBuilder.add("\n// Add contracts\n");
-        codeBlockBuilder.add(modelData.getModelContracts());
+    private static void generateContracts(CodeBlock.Builder cbb, ModelData modelData) {
+        cbb.add("\n// Add contracts\n");
+        cbb.add(modelData.getModelContracts());
     }
 
-    private static void checkIsSolutionExists(CodeBlock.Builder codeBlockBuilder) {
-        codeBlockBuilder.add("\n// Check if solution is found\n");
-        codeBlockBuilder.beginControlFlow("if (solution == null)");
-        codeBlockBuilder.addStatement("throw new $T($S)", IllegalArgumentException.class, "Cannot find solution for the given constraints");
-        codeBlockBuilder.endControlFlow();
+    private static void checkIsSolutionExists(CodeBlock.Builder cbb) {
+        cbb.add("\n// Check if solution is found\n");
+        cbb.beginControlFlow("if (solution == null)");
+        cbb.addStatement("throw new $T($S)", IllegalArgumentException.class, "Cannot find solution for the given constraints");
+        cbb.endControlFlow();
     }
 
     private static void returnAnswer(CodeBlock.Builder codeBlockBuilder) {
         codeBlockBuilder.addStatement("return $T.ok(answer)", ResponseEntity.class);
     }
 
-    private static void createSolverAndFindSolutions(String methodName, CodeBlock.Builder codeBlockBuilder) {
-        codeBlockBuilder.add("\n// Create solver and find solution\n");
-        codeBlockBuilder.addStatement("$T solver = model.getSolver()", Solver.class);
-        codeBlockBuilder.addStatement("$T solution = solver.findSolution()", Solution.class);
-        codeBlockBuilder.beginControlFlow("for (int i = 1; i < $L; i++)", methodName);
-        codeBlockBuilder.addStatement("solution = solver.findSolution()");
-        codeBlockBuilder.endControlFlow();
-        codeBlockBuilder.addStatement("$L++", methodName);
-        codeBlockBuilder.beginControlFlow("if (solution == null)");
-        codeBlockBuilder.addStatement("solver.reset()");
-        codeBlockBuilder.addStatement("solution = solver.findSolution()");
-        codeBlockBuilder.addStatement("$L = 2", methodName);
-        codeBlockBuilder.endControlFlow();
+    private static void createSolverAndFindSolutions(String methodName, CodeBlock.Builder cbb) {
+        cbb.add("\n// Create solver and find solution\n");
+        cbb.addStatement("$T solver = model.getSolver()", Solver.class);
+        cbb.addStatement("$T solution = solver.findSolution()", Solution.class);
+        cbb.beginControlFlow("for (int i = 1; i < $L; i++)", methodName);
+        cbb.addStatement("solution = solver.findSolution()");
+        cbb.endControlFlow();
+        cbb.addStatement("$L++", methodName);
+        cbb.beginControlFlow("if (solution == null)");
+        cbb.addStatement("solver.reset()");
+        cbb.addStatement("solution = solver.findSolution()");
+        cbb.addStatement("$L = 2", methodName);
+        cbb.endControlFlow();
     }
 
     private static String contractExpressionToDumpString(Contract contract) {
         return contract.getExpression().dumpToString();
     }
 
+    /**
+     * Restores the object with the solution found by the solver.
+     */
     private void restoreObjectWithSolution(CodeBlock.Builder codeBlockBuilder, ModelData modelData, Class<?> returnClass) {
-        // create object with random values and then restore it with solution
         codeBlockBuilder.add("\n// Restore object with solution\n");
         codeBlockBuilder.addStatement("$T answer = $L", returnClass, generateRandomGeneratedObject(returnClass));
 
         modelData.restoreModelContracts(codeBlockBuilder);
     }
 
-    private void createModelVariables(CodeBlock.Builder codeBlockBuilder, ModelData modelData) {
-        codeBlockBuilder.add("\n// Create model variables\n");
+    private void createModelVariables(CodeBlock.Builder cbb, ModelData modelData) {
+        cbb.add("\n// Create model variables\n");
         for (ModelVariable mv : modelData.getFieldsAffectedByContracts()) {
             if (mv.isParameter()) {
-                createModelVariableParameter(codeBlockBuilder, mv, modelData);
+                createModelVariableParameter(cbb, mv, modelData);
             } else {
-                createModelVariableResultField(codeBlockBuilder, mv);
+                createModelVariableResultField(cbb, mv);
             }
         }
     }
 
-    private void createModelVariableParameter(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable, ModelData modelData) {
+    private void createModelVariableParameter(CodeBlock.Builder cbb, ModelVariable modelVariable, ModelData modelData) {
         Class<?> type = modelVariable.type();
 
         String path = modelData.restorePathOfParameter(modelVariable);
 
         if (type == Integer.class) {
-            codeBlockBuilder.addStatement("$T $L = model.intVar($S, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), path);
+            cbb.addStatement("$T $L = model.intVar($S, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), path);
         } else if (type == Double.class) {
-            codeBlockBuilder.addStatement("$T $L = model.realVar($S, $L)", RealVar.class, modelVariable.name(), modelVariable.name(), path);
+            cbb.addStatement("$T $L = model.realVar($S, $L)", RealVar.class, modelVariable.name(), modelVariable.name(), path);
+        } else if (type == Boolean.class) {
+            cbb.addStatement("$T $L = model.boolVar($S, $L)", BoolVar.class, modelVariable.name(), modelVariable.name(), path);
         } else {
             throw new GenerationImplementationException("Unsupported type " + type.getName());
         }
-
     }
 
-    private void createModelVariableResultField(CodeBlock.Builder codeBlockBuilder, ModelVariable modelVariable) {
+    private void createModelVariableResultField(CodeBlock.Builder cbb, ModelVariable modelVariable) {
         Class<?> type = modelVariable.type();
 
         if (type == Integer.class) {
-            codeBlockBuilder.addStatement("$T $L = model.intVar($S, $L, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), -1000000, 1000000);
+            cbb.addStatement("$T $L = model.intVar($S, $L, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), -1000000, 1000000);
         } else if (type == Double.class) {
-            codeBlockBuilder.addStatement("$T $L = model.realVar($S, $L, $L, 0.01)", RealVar.class, modelVariable.name(), modelVariable.name(), -1000000.0, 1000000.0);
+            cbb.addStatement("$T $L = model.realVar($S, $L, $L, 0.01)", RealVar.class, modelVariable.name(), modelVariable.name(), -1000000.0, 1000000.0);
+        } else if (type == Boolean.class) {
+            cbb.addStatement("$T $L = model.boolVar($S)", BoolVar.class, modelVariable.name(), modelVariable.name());
         } else {
             throw new GenerationImplementationException("Unsupported type " + type.getName());
         }

@@ -83,7 +83,7 @@ public abstract sealed class ServiceGenerator permits ContractsServiceGenerator,
                             log.error("Failed to copy file to project root", e);
                             throw new GenerationServiceException("Failed to copy file to project root");
                         }
-                        log.info("File copied to {}", targetPath);
+                        log.debug("File copied to {}", targetPath);
                     });
         } catch (Exception e) {
             log.error("Failed to copy files to project root", e);
@@ -96,7 +96,7 @@ public abstract sealed class ServiceGenerator permits ContractsServiceGenerator,
             Path existingPomXMLPath = Path.of("src/main/resources/templates/pom.xml");
             Path pomXMLPath = tempDir.resolve("pom.xml");
             Files.copy(existingPomXMLPath, pomXMLPath, StandardCopyOption.REPLACE_EXISTING);
-            log.info("pom.xml copied to {}", pomXMLPath);
+            log.debug("pom.xml copied to {}", pomXMLPath);
         } catch (Exception e) {
             log.error("Failed to copy pom.xml", e);
             throw new GenerationServiceException("Failed to copy pom.xml");
@@ -108,7 +108,7 @@ public abstract sealed class ServiceGenerator permits ContractsServiceGenerator,
             Path existingDockerfile = Path.of("src/main/resources/templates/Dockerfile");
             Path dockerfilePath = tempDir.resolve("Dockerfile");
             Files.copy(existingDockerfile, dockerfilePath, StandardCopyOption.REPLACE_EXISTING);
-            log.info("Dockerfile copied to {}", dockerfilePath);
+            log.debug("Dockerfile copied to {}", dockerfilePath);
         } catch (Exception e) {
             log.error("Failed to copy Dockerfile", e);
             throw new GenerationServiceException("Failed to copy Dockerfile");

@@ -56,11 +56,11 @@ public class ModelData {
         return pathBuilder.toString();
     }
 
-    public void restoreModelContracts(CodeBlock.Builder codeBlockBuilder) {
+    public void restoreModelContracts(CodeBlock.Builder cbb) {
         for (ModelVariable field : getFieldsToRestore()) {
             String[] path = getFieldRelativePath(field.name());
             if (path.length == 0) {
-                codeBlockBuilder.addStatement("answer = $L", getValueSetterByClass(field));
+                cbb.addStatement("answer = $L", getValueSetterByClass(field));
             } else {
                 CodeBlock.Builder currentCodeBlockBuilder = CodeBlock.builder();
                 currentCodeBlockBuilder.add("answer");
@@ -68,10 +68,10 @@ public class ModelData {
                     currentCodeBlockBuilder.add(".get$L()", capitalizeFirstLetter(path[i]));
                 }
                 currentCodeBlockBuilder.add(".set$L($L)", capitalizeFirstLetter(path[path.length - 1]), getValueSetterByClass(field));
-                codeBlockBuilder.addStatement(currentCodeBlockBuilder.build());
+                cbb.addStatement(currentCodeBlockBuilder.build());
             }
         }
-        codeBlockBuilder.build();
+        cbb.build();
     }
 
     private List<ModelVariable> getFieldsToRestore() {
@@ -83,29 +83,31 @@ public class ModelData {
     }
 
     private CodeBlock getValueSetterByClass(ModelVariable mv) {
-        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+        CodeBlock.Builder cbb = CodeBlock.builder();
         if (mv.type() == Integer.class) {
-            codeBlockBuilder.add("$L.getValue()", mv.name());
+            cbb.add("$L.getValue()", mv.name());
         } else if (mv.type() == Double.class) {
-            codeBlockBuilder.add("($L.getLB() + $L.getUB()) / 2.0", mv.name(), mv.name());
+            cbb.add("$T.round(($L.getLB() + $L.getUB()) * 50) / 100.0", Math.class, mv.name(), mv.name());
+        } else if (mv.type() == Boolean.class) {
+            cbb.add("$L.getValue() == 1", mv.name());
         } else {
             throw new IllegalArgumentException("Unsupported type: " + mv.type());
         }
-        return codeBlockBuilder.build();
+        return cbb.build();
     }
 
     private CodeBlock generateModelContracts() {
-        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+        CodeBlock.Builder cbb = CodeBlock.builder();
         for (Contract contract : ensures) {
             CodeBlock.Builder contractCodeBlockBuilder = CodeBlock.builder();
             contractCodeBlockBuilder.add(generateModelContracts(contract.getExpression())).add(".post()");
-            codeBlockBuilder.addStatement(contractCodeBlockBuilder.build());
+            cbb.addStatement(contractCodeBlockBuilder.build());
         }
-        return codeBlockBuilder.build();
+        return cbb.build();
     }
 
     private CodeBlock generateModelContracts(Expression expression) {
-        CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+        CodeBlock.Builder cbb = CodeBlock.builder();
 
         if (!(expression instanceof BinaryOpExpression binaryOpExpression)) {
             throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
@@ -115,16 +117,18 @@ public class ModelData {
 
         CodeBlock right = expressionToCodeBlock(binaryOpExpression.getRight());
 
-        codeBlockBuilder.add("$L.$L($L)", left, convertOpToMethod(binaryOpExpression.getOp()), right);
+        cbb.add("$L.$L($L)", left, convertOpToMethod(binaryOpExpression.getOp()), right);
 
-        return codeBlockBuilder.build();
+        return cbb.build();
     }
 
     private CodeBlock expressionToCodeBlock(Expression expression) {
         return switch (expression) {
-            case VariableAccess leftVariableAccess -> CodeBlock.of("$L", convertVariableAccessToStringName(leftVariableAccess));
-            case BinaryOpExpression leftBinaryOpExpression -> generateModelContracts(leftBinaryOpExpression);
-            case IntegerLiteral leftIntegerLiteral -> CodeBlock.of("$L", leftIntegerLiteral.getValue());
+            case VariableAccess variableAccess -> CodeBlock.of("$L", convertVariableAccessToStringName(variableAccess));
+            case BinaryOpExpression binaryOpExpression -> generateModelContracts(binaryOpExpression);
+            case IntegerLiteral integerLiteral -> CodeBlock.of("$L", integerLiteral.getValue());
+            case FloatLiteral floatLiteral -> CodeBlock.of("$L", floatLiteral.getValue());
+            case BoolLiteral boolLiteral -> CodeBlock.of("$L", boolLiteral.getValue() ? 1 : 0);
             default -> throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
         };
     }
@@ -174,9 +178,7 @@ public class ModelData {
                 fields.add(fieldName);
             }
             case null -> throw new IllegalArgumentException("Expression is null");
-            default -> {
-                log.info("Skipping expression: {}", expression);
-            }
+            default -> log.debug("Skipping expression: {}", expression);
         }
 
         return fields;

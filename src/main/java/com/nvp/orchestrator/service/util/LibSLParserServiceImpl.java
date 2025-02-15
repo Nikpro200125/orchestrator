@@ -218,6 +218,11 @@ public final class LibSLParserServiceImpl {
                 }
             } else {
                 switch (argumentType) {
+                    case PrimitiveType primitiveType -> {
+                        Schema<?> schema = resolveTypeByStringName(primitiveType.getName());
+                        schema.types(null);
+                        return schema;
+                    }
                     case SimpleType simpleType -> {
                         Schema<?> schema = resolveTypeByStringName(simpleType.getRealType().getFullName());
 
