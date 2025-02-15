@@ -56,7 +56,7 @@ public final class LibSLParserServiceImpl {
         return library;
     }
 
-    public OpenAPI generateOpenAPI(Library library) {
+    public static OpenAPI generateOpenAPI(Library library) {
         OpenAPI openAPI = new OpenAPI().info(new Info().title("Generated API").version("1.0.0"));
 
         Paths paths = new Paths();
@@ -74,7 +74,7 @@ public final class LibSLParserServiceImpl {
         return openAPI;
     }
 
-    private String generatePathName(Automaton automaton, Function function, PathItem pathItem) {
+    private static String generatePathName(Automaton automaton, Function function, PathItem pathItem) {
         AtomicReference<String> pathName = new AtomicReference<>(PATH_DELIMITER + automaton.getName() + PATH_DELIMITER + function.getName());
         Stream.of(pathItem.getGet(), pathItem.getPost(), pathItem.getPut(), pathItem.getDelete())
                 .filter(Objects::nonNull)
@@ -91,7 +91,7 @@ public final class LibSLParserServiceImpl {
         return pathName.get();
     }
 
-    private PathItem generatePathItem(Function function) {
+    private static PathItem generatePathItem(Function function) {
         AnnotationUsage methodAnnotation = function.getAnnotationUsages()
                 .stream()
                 .filter(a -> MethodAnnotation.isMethodAnnotation(a.getAnnotationReference().getName()))
@@ -116,6 +116,8 @@ public final class LibSLParserServiceImpl {
                 operation.addExtension("x-codegen-request-body-name", arg.getName());
             } else if (isArgumentWithAnnotation(arg, ParameterType.PATH)) {
                 operation.addParametersItem(generatePathParameter(arg));
+            } else if (isArgumentWithAnnotation(arg, ParameterType.QUERY)) {
+                operation.addParametersItem(generateQueryParameter(arg));
             }
         });
 
@@ -132,7 +134,7 @@ public final class LibSLParserServiceImpl {
         return pathItem;
     }
 
-    private void generateResponses(Function function, Operation operation) {
+    private static void generateResponses(Function function, Operation operation) {
         ApiResponse response = new ApiResponse();
         response.description("Successful operation");
 
@@ -143,13 +145,13 @@ public final class LibSLParserServiceImpl {
         operation.responses(new ApiResponses().addApiResponse("200", response));
     }
 
-    private void addResponse(Function function, ApiResponse response) {
+    private static void addResponse(Function function, ApiResponse response) {
         Content content = generateContentByTypeReference(Objects.requireNonNull(function.getReturnType()));
 
         response.content(content);
     }
 
-    private RequestBody generateRequestBody(FunctionArgument argument) {
+    private static RequestBody generateRequestBody(FunctionArgument argument) {
         Content content = generateContentByTypeReference(Objects.requireNonNull(argument.getTypeReference()));
 
         RequestBody requestBody = new RequestBody();
@@ -158,7 +160,7 @@ public final class LibSLParserServiceImpl {
         return requestBody;
     }
 
-    private Content generateContentByTypeReference(TypeReference typeReference) {
+    private static Content generateContentByTypeReference(TypeReference typeReference) {
         Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(typeReference.resolve()));
 
         MediaType mediaType = new MediaType();
@@ -170,11 +172,18 @@ public final class LibSLParserServiceImpl {
         return content;
     }
 
-    private Parameter generatePathParameter(FunctionArgument argument) {
+    private static Parameter generatePathParameter(FunctionArgument argument) {
         return new Parameter()
                 .name(argument.getName())
                 .in(PATH)
                 .required(true)
+                .schema(generateArgumentSchema(Objects.requireNonNull(argument.getTypeReference().resolve())));
+    }
+
+    private static Parameter generateQueryParameter(FunctionArgument argument) {
+        return new Parameter()
+                .name(argument.getName())
+                .in("query")
                 .schema(generateArgumentSchema(Objects.requireNonNull(argument.getTypeReference().resolve())));
     }
 
@@ -194,7 +203,7 @@ public final class LibSLParserServiceImpl {
                 .anyMatch(a -> a.getAnnotationReference().getName().equals(parameterType.getValue()));
     }
 
-    private Schema<?> generateArgumentSchema(Type argumentType) {
+    private static Schema<?> generateArgumentSchema(Type argumentType) {
 
         try {
             if (argumentType.isTopLevelType()) {

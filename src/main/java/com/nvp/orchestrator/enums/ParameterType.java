@@ -8,9 +8,8 @@ import lombok.Getter;
 public enum ParameterType {
     PATH("PathParameter"),
     REQUEST_BODE("RequestBody"),
-    // Not supported yet
     QUERY("QueryParameter");
 
-    private String value;
+    private final String value;
 }
 
