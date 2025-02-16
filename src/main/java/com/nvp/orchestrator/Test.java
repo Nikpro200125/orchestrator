@@ -1,5 +1,6 @@
 package com.nvp.orchestrator;
 
+import com.nvp.orchestrator.model.ModelVariable;
 import org.chocosolver.solver.Model;
 import org.chocosolver.solver.Solution;
 import org.chocosolver.solver.variables.BoolVar;
@@ -8,7 +9,10 @@ import org.chocosolver.solver.Solver;
 import org.chocosolver.solver.variables.RealVar;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Random;
+import java.util.stream.IntStream;
 
 public class Test {
 
