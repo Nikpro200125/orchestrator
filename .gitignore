@@ -37,4 +37,4 @@ out/
 .vscode/
 
 ### Test ###
-./src/main/java/com/nvp/orchestrator/Test.java
+/src/main/java/com/nvp/orchestrator/Test.java
