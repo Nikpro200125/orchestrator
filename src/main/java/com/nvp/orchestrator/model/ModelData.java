@@ -1,6 +1,6 @@
 package com.nvp.orchestrator.model;
 
-import com.mifmif.common.regex.Generex;
+import com.github.curiousoddman.rgxgen.RgxGen;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
@@ -196,7 +196,7 @@ public class ModelData {
             CodeBlock.Builder cbb = CodeBlock.builder();
             CodeBlock left = expressionToCodeBlock(binaryOpExpression.getLeft());
             CodeBlock right = expressionToCodeBlock(binaryOpExpression.getRight());
-            cbb.add("$L = (new $T($L)).random()", left, Generex.class, right);
+            cbb.add("$L = $T.parse($L).generate()", left, RgxGen.class, right);
             return cbb.build();
         } else {
             throw new IllegalArgumentException("Unsupported expression type: " + expression.getClass().getName());
