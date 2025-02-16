@@ -35,3 +35,6 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Test ###
+./src/main/java/com/nvp/orchestrator/Test.java
