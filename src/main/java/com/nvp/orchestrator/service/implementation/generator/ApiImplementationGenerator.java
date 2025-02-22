@@ -174,7 +174,7 @@ public sealed abstract class ApiImplementationGenerator implements Closeable per
                 Type keyType = parameterizedType.getActualTypeArguments()[0];
                 Type valueType = parameterizedType.getActualTypeArguments()[1];
                 return CodeBlock.builder()
-                        .add("$T.range(0, new $T().nextInt($L)).mapToObj($L -> $L).collect($T.toMap($L -> $L, $L -> $L))",
+                        .add("$T.range(0, new $T().nextInt($L)).mapToObj($L -> $L).distinct().collect($T.toMap($L -> $L, $L -> $L))",
                                 IntStream.class,
                                 Random.class,
                                 depth == 0 ? "10" : "1, 10",
