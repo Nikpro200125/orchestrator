@@ -34,6 +34,7 @@ import java.util.stream.IntStream;
 @RequiredArgsConstructor
 public sealed abstract class ApiImplementationGenerator implements Closeable permits ContractsApiImplementationGenerator, RandomApiImplementationGenerator {
 
+    private static final int MAX_COLLECTION_SIZE = 10;
     private final Path generatedProjectPath;
     private URLClassLoader urlClassLoader;
 
@@ -162,7 +163,7 @@ public sealed abstract class ApiImplementationGenerator implements Closeable per
                         .add("$T.range(0, new $T().nextInt($L)).mapToObj($L -> $L).collect($T.toList())",
                                 IntStream.class,
                                 Random.class,
-                                depth == 0 ? "10" : "1, 10",
+                                depth == 0 ? MAX_COLLECTION_SIZE : "1, " + MAX_COLLECTION_SIZE,
                                 "_i".repeat(depth + 1),
                                 generateRandomGeneratedObject(elementType, depth + 1),
                                 Collectors.class
@@ -177,7 +178,7 @@ public sealed abstract class ApiImplementationGenerator implements Closeable per
                         .add("$T.range(0, new $T().nextInt($L)).mapToObj($L -> $L).distinct().collect($T.toMap($L -> $L, $L -> $L))",
                                 IntStream.class,
                                 Random.class,
-                                depth == 0 ? "10" : "1, 10",
+                                depth == 0 ? MAX_COLLECTION_SIZE : "1, " + MAX_COLLECTION_SIZE,
                                 "_Map_i".repeat(depth + 1),
                                 generateRandomGeneratedObject(keyType, depth + 1),
                                 Collectors.class,

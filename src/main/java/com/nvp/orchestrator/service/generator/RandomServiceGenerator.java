@@ -28,8 +28,7 @@ public final class RandomServiceGenerator extends ServiceGenerator {
     }
 
     private static void generateApi(Path tempDir) {
-        RandomApiImplementationGenerator generator = new RandomApiImplementationGenerator(tempDir);
-        try {
+        try (RandomApiImplementationGenerator generator = new RandomApiImplementationGenerator(tempDir)) {
             generator.generate();
         } catch (Exception e) {
             log.error("Failed to generate API implementations", e);

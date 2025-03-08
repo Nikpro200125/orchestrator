@@ -126,9 +126,11 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
     private static void generateCheckRequires(List<Contract> requires, CodeBlock.Builder cbb) {
         if (!requires.isEmpty()) {
             cbb.add("\n// Check requires\n");
-            cbb.beginControlFlow("if (!($L))", generateContractsCondition(requires));
-            cbb.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition failed");
-            cbb.endControlFlow();
+            for (Contract require : requires) {
+                cbb.beginControlFlow("if (!($L))", contractExpressionToDumpString(require));
+                cbb.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition with " + (require.getName() == null ? "unset name" : require.getName()) + " failed");
+                cbb.endControlFlow();
+            }
         }
     }
 
@@ -147,17 +149,6 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         }
 
         throw new GenerationImplementationException("No return class can be inferred for " + returnType.getTypeName());
-    }
-
-    private static CodeBlock generateContractsCondition(List<Contract> requires) {
-        CodeBlock.Builder cbb = CodeBlock.builder();
-        for (int i = 0; i < requires.size(); i++) {
-            cbb.add("($L)", contractExpressionToDumpString(requires.get(i)));
-            if (i < requires.size() - 1) {
-                cbb.add(" && ");
-            }
-        }
-        return cbb.build();
     }
 
     private void generateResponseResultBasedOnContracts(CodeBlock.Builder cbb, Class<?> returnClass, List<Contract> ensures, String methodName, Parameter[] parameters) {
