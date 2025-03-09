@@ -17,7 +17,10 @@ import java.util.stream.Stream;
 @Slf4j
 public abstract sealed class ServiceGenerator permits ContractsServiceGenerator, RandomServiceGenerator {
 
-    protected static final String RESOURCE_ROOT_DIR = "src/main/resources/templates/root";
+    protected static final String RESOURCE_PLACEHOLDER_DIR = "src/main/resources/project_placeholder";
+    protected static final String RESOURCE_ROOT_DIR = RESOURCE_PLACEHOLDER_DIR + "/root";
+    protected static final String RESOURCES_DIR = RESOURCE_PLACEHOLDER_DIR + "/resources";
+    protected static final String PROJECT_RESOURCES_DIR = "src/main/resources";
     protected static final String PROJECT_ROOT_DIR = "src/main/java/org/openapitools";
     protected static final String OPENAPI_SPEC_FILE_NAME = "openapi.yaml";
 
@@ -46,7 +49,8 @@ public abstract sealed class ServiceGenerator permits ContractsServiceGenerator,
             throw new GenerationServiceException("Failed to generate service");
         }
 
-        copyFilesToProjectRoot(tempDir);
+        copyFilesRelativeToRootFolder(tempDir, PROJECT_ROOT_DIR, Path.of(RESOURCE_ROOT_DIR));
+        copyFilesRelativeToRootFolder(tempDir, PROJECT_RESOURCES_DIR, Path.of(RESOURCES_DIR));
         updatePomXML(tempDir);
         MavenTools.compileGenerated(tempDir);
     }
@@ -70,12 +74,12 @@ public abstract sealed class ServiceGenerator permits ContractsServiceGenerator,
         }
     }
 
-    private void copyFilesToProjectRoot(Path tempDir) {
-        try (Stream<Path> files = Files.walk(Path.of(RESOURCE_ROOT_DIR))) {
+    private void copyFilesRelativeToRootFolder(Path generatedBaseDir, String to, Path from) {
+        try (Stream<Path> files = Files.walk(from)) {
             files.filter(Files::isRegularFile)
                     .forEach(file -> {
-                        Path relativePath = Path.of(RESOURCE_ROOT_DIR).relativize(file);
-                        Path targetPath = tempDir.resolve(PROJECT_ROOT_DIR).resolve(relativePath);
+                        Path relativePath = from.relativize(file);
+                        Path targetPath = generatedBaseDir.resolve(to).resolve(relativePath);
                         try {
                             Files.createDirectories(targetPath.getParent());
                             Files.copy(file, targetPath, StandardCopyOption.REPLACE_EXISTING);
@@ -93,7 +97,7 @@ public abstract sealed class ServiceGenerator permits ContractsServiceGenerator,
 
     private void updatePomXML(Path tempDir) {
         try {
-            Path existingPomXMLPath = Path.of("src/main/resources/templates/pom.xml");
+            Path existingPomXMLPath = Path.of(RESOURCE_PLACEHOLDER_DIR + "/pom.xml");
             Path pomXMLPath = tempDir.resolve("pom.xml");
             Files.copy(existingPomXMLPath, pomXMLPath, StandardCopyOption.REPLACE_EXISTING);
             log.debug("pom.xml copied to {}", pomXMLPath);
@@ -105,7 +109,7 @@ public abstract sealed class ServiceGenerator permits ContractsServiceGenerator,
 
     private void copyDockerfile(Path tempDir) {
         try {
-            Path existingDockerfile = Path.of("src/main/resources/templates/Dockerfile");
+            Path existingDockerfile = Path.of(RESOURCE_PLACEHOLDER_DIR + "/Dockerfile");
             Path dockerfilePath = tempDir.resolve("Dockerfile");
             Files.copy(existingDockerfile, dockerfilePath, StandardCopyOption.REPLACE_EXISTING);
             log.debug("Dockerfile copied to {}", dockerfilePath);

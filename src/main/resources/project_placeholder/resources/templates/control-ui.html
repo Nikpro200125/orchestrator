@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Панель управления эндпоинтами</title>
+    <!-- Отменяем запрос favicon -->
+    <link rel="icon" href="data:,">
+    <!-- Подключение Bootstrap 5 (CSS) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: #f8f9fa;
+        }
+        .navbar {
+            margin-bottom: 20px;
+        }
+        .card {
+            margin-bottom: 20px;
+        }
+        .table-container {
+            overflow-x: auto;
+        }
+        .card-header {
+            background-color: #343a40;
+            color: #fff;
+        }
+        .btn {
+            min-width: 120px;
+        }
+        /* Позиционирование контейнера для тостов */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1055;
+        }
+    </style>
+</head>
+<body>
+<!-- Навигационная панель -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container">
+        <a class="navbar-brand" href="#">Панель управления эндпоинтами</a>
+    </div>
+</nav>
+
+<div class="container">
+    <!-- Карточка для настроек эндпоинтов -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="mb-0">Настройка эндпоинтов</h3>
+        </div>
+        <div class="card-body">
+            <div class="table-container">
+                <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                    <tr>
+                        <th>Эндпоинт</th>
+                        <th>Задержка (мс)</th>
+                        <th>Переопределённый HTTP-код</th>
+                        <th>Действие</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="endpoint : ${endpoints}">
+                        <td th:text="${endpoint}"></td>
+                        <td>
+                            <form th:action="@{/control/configs}" method="post"
+                                  th:id="'updateForm-' + ${endpoint.hashCode()}" class="row g-2 align-items-center">
+                                <!-- Скрытое поле с именем эндпоинта -->
+                                <input type="hidden" name="endpoint" th:value="${endpoint}" />
+                                <div class="col">
+                                    <input type="number" name="delayMs" class="form-control" min="0" placeholder="Задержка (мс)"
+                                           th:value="${configs.get(endpoint) != null ? configs.get(endpoint).delayMs : ''}" />
+                                </div>
+                        </td>
+                        <td>
+                            <div class="col">
+                                <input type="number" name="httpCodeOverride" class="form-control" min="100" max="599" placeholder="HTTP код"
+                                       th:value="${configs.get(endpoint) != null ? configs.get(endpoint).httpCodeOverride : ''}" />
+                            </div>
+                        </td>
+                        <td>
+                            <div class="col">
+                                <button type="submit" class="btn btn-primary">Обновить</button>
+                            </div>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Карточка для сброса настроек -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="mb-0">Сброс настроек</h3>
+        </div>
+        <div class="card-body">
+            <form id="resetAllForm" th:action="@{/control/configs/resetAll}" method="post">
+                <button type="submit" class="btn btn-danger">Сбросить все настройки</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Контейнер для отображения тостов -->
+<div class="toast-container">
+    <div id="toastNotification" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body" id="toastBody">
+                <!-- Текст уведомления будет подставлен динамически -->
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Закрыть"></button>
+        </div>
+    </div>
+</div>
+
+<!-- Подключение Bootstrap 5 (JS) Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Скрипт для AJAX отправки форм и показа тоста -->
+<script>
+    // Функция блокировки всех инпутов, кнопок, select и textarea на странице
+    function disableAllInputs() {
+        document.querySelectorAll('input, button, select, textarea').forEach(el => {
+            el.disabled = true;
+        });
+    }
+    // Функция разблокировки всех элементов
+    function enableAllInputs() {
+        document.querySelectorAll('input, button, select, textarea').forEach(el => {
+            el.disabled = false;
+        });
+    }
+
+    // Функция показа тоста с указанным сообщением; возвращает промис, который резолвится через 2 секунды
+    function showToast(message, isError) {
+        const toastEl = document.getElementById('toastNotification');
+        const toastBody = document.getElementById('toastBody');
+        toastBody.textContent = message;
+        if (isError) {
+            toastEl.classList.remove('text-bg-success');
+            toastEl.classList.add('text-bg-danger');
+        } else {
+            toastEl.classList.remove('text-bg-danger');
+            toastEl.classList.add('text-bg-success');
+        }
+        const toast = new bootstrap.Toast(toastEl, { delay: 2000 });
+        toast.show();
+        return new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Функция для отправки формы через fetch с блокировкой инпутов
+    function ajaxSubmit(form, successMessage) {
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+            // Сначала собираем данные формы
+            const formData = new FormData(form);
+            // Затем блокируем все элементы ввода
+            disableAllInputs();
+            fetch(form.action, {
+                method: form.method,
+                body: formData
+            })
+                .then(response => {
+                    if (response.ok) {
+                        return response.text();
+                    } else {
+                        throw new Error('Ошибка: ' + response.status);
+                    }
+                })
+                .then(() => {
+                    return showToast(successMessage, false);
+                })
+                .then(() => {
+                    window.location.reload();
+                })
+                .catch(error => {
+                    console.error('Ошибка при отправке формы:', error);
+                    showToast('Ошибка: ' + error.message, true);
+                    enableAllInputs(); // Разблокируем элементы, если произошла ошибка
+                });
+        });
+    }
+
+    // Привязываем AJAX-обработчик ко всем формам обновления (id начинаются с "updateForm-")
+    document.querySelectorAll('form[id^="updateForm-"]').forEach(form => {
+        ajaxSubmit(form, 'Настройки обновлены');
+    });
+
+    // Обработчик для формы сброса настроек
+    ajaxSubmit(document.getElementById('resetAllForm'), 'Настройки сброшены');
+</script>
+</body>
+</html>

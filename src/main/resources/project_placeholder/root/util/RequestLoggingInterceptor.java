@@ -19,9 +19,13 @@ import java.util.List;
 @Slf4j
 public class RequestLoggingInterceptor implements HandlerInterceptor {
 
-    private static final List<String> EXCLUDED_PATTERNS = List.of(
+    public static final List<String> EXCLUDED_PATTERNS = List.of(
             "/swagger-ui*/**",
-            "/v3/api-docs*/**"
+            "/v3/api-docs*/**",
+            "/ui*/**",
+            "/stats*/**",
+            "/error*/**",
+            "/control*/**"
     );
 
     private final RequestCounterService counterService;
@@ -44,7 +48,6 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
 
         for (String pattern : EXCLUDED_PATTERNS) {
             if (pathMatcher.match(pattern, pathTemplate)) {
-                log.info("Incoming request: {} {}", request.getMethod(), request.getRequestURI());
                 return true;
             }
         }
