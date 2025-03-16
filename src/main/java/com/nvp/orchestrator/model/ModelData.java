@@ -20,7 +20,8 @@ public class ModelData {
     public final static String FIELD_DELIMITER = "$";
     public final static String RESULT_FIELD = "result";
     private final static String REGULAR_ENSURE = "rex";
-    private final static List<Class<?>> CONTRACT_SUPPORTED_TYPES = List.of(Integer.class, Double.class, Boolean.class);
+    private final static List<Class<?>> CONTRACT_SUPPORTED_TYPES =
+            List.of(Integer.class, Double.class, Boolean.class, Float.class, Long.class);
 
     private final List<String> allFields = new ArrayList<>();
     private final Class<?> returnClass;
@@ -83,7 +84,7 @@ public class ModelData {
                 .toList();
     }
 
-    private static String capitalizeFirstLetter(String str) {
+    public static String capitalizeFirstLetter(String str) {
         return str.substring(0, 1).toUpperCase() + str.substring(1);
     }
 
@@ -92,6 +93,7 @@ public class ModelData {
         switch (mv.type().getSimpleName()) {
             case "Integer" -> cbb.add("$L.getValue()", mv.name());
             case "Double" -> cbb.add("$T.round(($L.getLB() + $L.getUB()) * 50) / 100.0", Math.class, mv.name(), mv.name());
+            case "Float" -> cbb.add("(float) ($T.round(($L.getLB() + $L.getUB()) * 50) / 100.0)", Math.class, mv.name(), mv.name());
             case "Boolean" -> cbb.add("$L.getValue() == 1", mv.name());
             case "String" -> cbb.add("$L", mv.name());
             default -> throw new IllegalArgumentException("Unsupported type: " + mv.type());
@@ -99,10 +101,8 @@ public class ModelData {
         return cbb.build();
     }
 
-    /**<pre>
+    /**
      * Generates model contracts for the given ensures
-     * Without regular ensures
-     * </pre>
      */
     public CodeBlock generateModelContracts() {
         CodeBlock.Builder cbb = CodeBlock.builder();

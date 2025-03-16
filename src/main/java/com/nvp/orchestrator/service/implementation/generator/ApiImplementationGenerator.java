@@ -112,15 +112,19 @@ public sealed abstract class ApiImplementationGenerator implements Closeable per
         if (returnType instanceof Class<?> returnClass) {
             // Обработка примитивов и известных типов
             if (returnClass == Integer.class) {
-                return CodeBlock.builder().add("new $T().nextInt()", Random.class).build();
+                return CodeBlock.builder().add("new $T().nextInt(1_000_000)", Random.class).build();
             }
 
             if (returnClass == Long.class) {
-                return CodeBlock.builder().add("new $T().nextLong()", Random.class).build();
+                return CodeBlock.builder().add("new $T().nextLong(1_000_000)", Random.class).build();
             }
 
             if (returnClass == Double.class) {
-                return CodeBlock.builder().add("new $T().nextDouble()", Random.class).build();
+                return CodeBlock.builder().add("new $T().nextDouble() * 1_000_000", Random.class).build();
+            }
+
+            if (returnClass == Float.class) {
+                return CodeBlock.builder().add("new $T().nextFloat() * 1_000_000", Random.class).build();
             }
 
             if (returnClass == Boolean.class) {

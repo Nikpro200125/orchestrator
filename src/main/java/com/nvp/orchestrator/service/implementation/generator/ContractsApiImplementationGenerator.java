@@ -23,6 +23,8 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 public final class ContractsApiImplementationGenerator extends ApiImplementationGenerator {
@@ -127,7 +129,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         if (!requires.isEmpty()) {
             cbb.add("\n// Check requires\n");
             for (Contract require : requires) {
-                cbb.beginControlFlow("if (!($L))", contractExpressionToDumpString(require));
+                cbb.beginControlFlow("if (!($L))", contractExpressionToRequires(require));
                 cbb.addStatement("throw new $T($S)", IllegalArgumentException.class, "Precondition with " + (require.getName() == null ? "unset name" : require.getName()) + " failed");
                 cbb.endControlFlow();
             }
@@ -205,8 +207,18 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         cbb.endControlFlow();
     }
 
-    private static String contractExpressionToDumpString(Contract contract) {
-        return contract.getExpression().dumpToString();
+    private static String contractExpressionToRequires(Contract contract) {
+        String expression = contract.getExpression().dumpToString();
+        Pattern pattern = Pattern.compile("\\.([a-zA-Z]\\w*)");
+        Matcher matcher = pattern.matcher(expression);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String field = matcher.group(1);
+            String replacement = ".get" + field.substring(0, 1).toUpperCase() + field.substring(1) + "()";
+            matcher.appendReplacement(sb, replacement);
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 
     /**
@@ -237,7 +249,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         if (type == Integer.class) {
             cbb.addStatement("$T $L = model.intVar($S, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), path);
-        } else if (type == Double.class) {
+        } else if (type == Double.class || type == Float.class) {
             cbb.addStatement("$T $L = model.realVar($S, $L)", RealVar.class, modelVariable.name(), modelVariable.name(), path);
         } else if (type == Boolean.class) {
             cbb.addStatement("$T $L = model.boolVar($S, $L)", BoolVar.class, modelVariable.name(), modelVariable.name(), path);
@@ -251,7 +263,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         if (type == Integer.class) {
             cbb.addStatement("$T $L = model.intVar($S, $L, $L)", IntVar.class, modelVariable.name(), modelVariable.name(), -1000000, 1000000);
-        } else if (type == Double.class) {
+        } else if (type == Double.class || type == Float.class) {
             cbb.addStatement("$T $L = model.realVar($S, $L, $L, 0.01)", RealVar.class, modelVariable.name(), modelVariable.name(), -1000000.0, 1000000.0);
         } else if (type == Boolean.class) {
             cbb.addStatement("$T $L = model.boolVar($S)", BoolVar.class, modelVariable.name(), modelVariable.name());

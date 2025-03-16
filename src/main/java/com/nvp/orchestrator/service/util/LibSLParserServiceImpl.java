@@ -129,6 +129,7 @@ public final class LibSLParserServiceImpl {
             case POST -> pathItem.post(operation);
             case PUT -> pathItem.put(operation);
             case DELETE -> pathItem.delete(operation);
+            case PATCH -> pathItem.patch(operation);
         }
 
         return pathItem;
@@ -204,11 +205,10 @@ public final class LibSLParserServiceImpl {
     }
 
     private static Schema<?> generateArgumentSchema(Type argumentType) {
-
         try {
-            if (argumentType.isTopLevelType()) {
-                ObjectSchema objectSchema = new ObjectSchema();
-                if (argumentType instanceof StructuredType structuredType) {
+            switch (argumentType) {
+                case StructuredType structuredType -> {
+                    ObjectSchema objectSchema = new ObjectSchema();
                     structuredType.getVariables().forEach(variable -> {
                         Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(variable.getTypeReference().resolve()));
                         objectSchema.addProperty(variable.getName(), schema);
@@ -216,8 +216,7 @@ public final class LibSLParserServiceImpl {
                     objectSchema.types(null);
                     return objectSchema;
                 }
-            } else if (argumentType.isArray()) {
-                if (argumentType instanceof ArrayType arrayType) {
+                case ArrayType arrayType -> {
                     Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(arrayType.getGenerics().getFirst().resolve()));
                     schema.types(null);
                     ArraySchema arraySchema = new ArraySchema();
@@ -225,41 +224,41 @@ public final class LibSLParserServiceImpl {
                     arraySchema.types(null);
                     return arraySchema;
                 }
-            } else {
-                switch (argumentType) {
-                    case PrimitiveType primitiveType -> {
-                        Schema<?> schema = resolveTypeByStringName(primitiveType.getName());
-                        schema.types(null);
-                        return schema;
-                    }
-                    case SimpleType simpleType -> {
-                        Schema<?> schema = resolveTypeByStringName(simpleType.getRealType().getFullName());
+                case PrimitiveType primitiveType -> {
+                    Schema<?> schema = resolveTypeByStringName(primitiveType.getName());
+                    schema.types(null);
+                    return schema;
+                }
+                case SimpleType simpleType -> {
+                    Schema<?> schema = resolveTypeByStringName(simpleType.getRealType().getFullName());
 
-                        schema.types(null);
-                        return schema;
-                    }
-                    case RealType realType -> {
-                        Schema<?> schema = resolveTypeByStringName(realType.getFullName());
+                    schema.types(null);
+                    return schema;
+                }
+                case RealType realType -> {
+                    Schema<?> schema = resolveTypeByStringName(realType.getFullName());
 
-                        schema.types(null);
-                        return schema;
+                    schema.types(null);
+                    return schema;
+                }
+                case MapType mapType -> {
+                    if (mapType.getGenerics().size() != 2) {
+                        throw new LibSLParsingException("Map type should have 2 generics");
                     }
-                    case MapType mapType -> {
-                        if (mapType.getGenerics().size() != 2) {
-                            throw new LibSLParsingException("Map type should have 2 generics");
-                        }
 
-                        Schema<?> valueSchema = generateArgumentSchema(Objects.requireNonNull(mapType.getGenerics().getLast().resolve()));
-                        valueSchema.types(null);
+                    Schema<?> valueSchema = generateArgumentSchema(Objects.requireNonNull(mapType.getGenerics().getLast().resolve()));
+                    valueSchema.types(null);
 
-                        Schema<?> schema = new MapSchema();
-                        schema.additionalProperties(valueSchema);
+                    Schema<?> schema = new MapSchema();
+                    schema.additionalProperties(valueSchema);
 
-                        schema.types(null);
-                        return schema;
-                    }
-                    default -> {
-                    }
+                    schema.types(null);
+                    return schema;
+                }
+                case TypeAlias typeAlias -> {
+                    return generateArgumentSchema(Objects.requireNonNull(typeAlias.getOriginalType().resolve()));
+                }
+                default -> {
                 }
             }
         } catch (Exception e) {
@@ -273,10 +272,12 @@ public final class LibSLParserServiceImpl {
         return switch (typeName) {
             case "int", "int8", "int16", "int32" -> new IntegerSchema().format("int32");
             case "long" -> new IntegerSchema().format("int64");
-            case "float", "float32" -> new NumberSchema().format("float");
+            case "float32" -> new NumberSchema().format("float");
             case "float64" -> new NumberSchema().format("double");
             case "boolean", "Boolean" -> new BooleanSchema();
             case "string" -> new StringSchema();
+            case "java.time.LocalDate" -> new DateSchema();
+            case "java.time.LocalDateTime" -> new DateTimeSchema();
             default -> throw new LibSLParsingException("Unexpected value: " + typeName);
         };
     }
