@@ -25,7 +25,8 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
             "/ui*/**",
             "/stats*/**",
             "/error*/**",
-            "/control*/**"
+            "/control*/**",
+            "/openapi*/**"
     );
 
     private final RequestCounterService counterService;

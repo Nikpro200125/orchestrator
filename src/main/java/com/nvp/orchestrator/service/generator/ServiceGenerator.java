@@ -53,6 +53,18 @@ public abstract sealed class ServiceGenerator permits ContractsServiceGenerator,
         copyFilesRelativeToRootFolder(tempDir, PROJECT_RESOURCES_DIR, Path.of(RESOURCES_DIR));
         updatePomXML(tempDir);
         MavenTools.compileGenerated(tempDir);
+        copyOpenApiFile(tempDir, openapiSpecPath);
+    }
+
+    private static void copyOpenApiFile(Path tempDir, Path openapiSpecPath) {
+        try {
+            Path targetPath = tempDir.resolve(PROJECT_RESOURCES_DIR + "/static/" + OPENAPI_SPEC_FILE_NAME);
+            Files.createDirectories(targetPath.getParent());
+            Files.copy(openapiSpecPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            log.error("Failed to copy openapi.yaml to resources/static", e);
+            throw new GenerationServiceException("Failed to copy openapi.yaml to resources/static");
+        }
     }
 
     protected String buildAndDeployService(Path tempDir) {
