@@ -291,9 +291,9 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
                 .collect(Collectors.joining(", "));
         CodeBlock.Builder cbb = CodeBlock.builder();
         if (!intVars.isEmpty() && !realVars.isEmpty()) {
-            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextInt()), $T.realVarSearch($L))", Search.class, IntVar[].class, intVars, Random.class, Search.class, realVars);
+            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextInt()), $T.realVarSearch($L))", Search.class, IntVar.class, intVars, Random.class, Search.class, realVars);
         } else if (!intVars.isEmpty()) {
-            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextInt()))", Search.class, IntVar[].class, intVars, Random.class);
+            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextInt()))", Search.class, IntVar.class, intVars, Random.class);
         } else if (!realVars.isEmpty()) {
             cbb.addStatement("solver.setSearch($T.realVarSearch($L))", Search.class, realVars);
         }
