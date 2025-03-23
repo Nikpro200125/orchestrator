@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.chocosolver.solver.Model;
 import org.chocosolver.solver.Solution;
 import org.chocosolver.solver.Solver;
+import org.chocosolver.solver.search.strategy.Search;
 import org.chocosolver.solver.variables.BoolVar;
 import org.chocosolver.solver.variables.IntVar;
 import org.chocosolver.solver.variables.RealVar;
@@ -15,6 +16,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.research.libsl.nodes.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.javapoet.*;
+import org.springframework.javapoet.CodeBlock.Builder;
 
 import javax.lang.model.element.Modifier;
 import java.lang.reflect.Method;
@@ -25,6 +27,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 public final class ContractsApiImplementationGenerator extends ApiImplementationGenerator {
@@ -136,7 +139,8 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         }
     }
 
-    /**<pre>
+    /**
+     * <pre>
      * Extracts the return class from the return type of the method.
      * If the return type is ResponseEntity<T>, then T is returned.
      * Otherwise, an exception is thrown.
@@ -162,7 +166,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         generateContracts(cbb, modelData);
 
-        createSolverAndFindSolutions(methodName, cbb);
+        createSolverAndFindSolutions(cbb, methodName, modelData);
 
         checkIsSolutionExists(cbb);
 
@@ -192,9 +196,10 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         codeBlockBuilder.addStatement("return $T.ok(answer)", ResponseEntity.class);
     }
 
-    private static void createSolverAndFindSolutions(String methodName, CodeBlock.Builder cbb) {
+    private static void createSolverAndFindSolutions(Builder cbb, String methodName, ModelData modelData) {
         cbb.add("\n// Create solver and find solution\n");
         cbb.addStatement("$T solver = model.getSolver()", Solver.class);
+        cbb.add(setSearchStrategy(modelData));
         cbb.addStatement("$T solution = solver.findSolution()", Solution.class);
         cbb.beginControlFlow("for (int i = 1; i < $L; i++)", methodName);
         cbb.addStatement("solution = solver.findSolution()");
@@ -273,6 +278,26 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
             throw new GenerationImplementationException("Unsupported type " + type.getName());
         }
 
+    }
+
+    private static CodeBlock setSearchStrategy(ModelData modelData) {
+        String intVars = modelData.getFieldsAffectedByContracts().stream()
+                .filter(mv -> mv.type().equals(Integer.class))
+                .map(ModelVariable::name)
+                .collect(Collectors.joining(", "));
+        String realVars = modelData.getFieldsAffectedByContracts().stream()
+                .filter(mv -> List.of(Double.class, Float.class).contains(mv.type()))
+                .map(ModelVariable::name)
+                .collect(Collectors.joining(", "));
+        CodeBlock.Builder cbb = CodeBlock.builder();
+        if (!intVars.isEmpty() && !realVars.isEmpty()) {
+            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextInt()), $T.realVarSearch($L))", Search.class, IntVar[].class, intVars, Random.class, Search.class, realVars);
+        } else if (!intVars.isEmpty()) {
+            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextInt()))", Search.class, IntVar[].class, intVars, Random.class);
+        } else if (!realVars.isEmpty()) {
+            cbb.addStatement("solver.setSearch($T.realVarSearch($L))", Search.class, realVars);
+        }
+        return cbb.build();
     }
 
 }

@@ -92,8 +92,8 @@ public class ModelData {
         CodeBlock.Builder cbb = CodeBlock.builder();
         switch (mv.type().getSimpleName()) {
             case "Integer" -> cbb.add("$L.getValue()", mv.name());
-            case "Double" -> cbb.add("$T.round(($L.getLB() + $L.getUB()) * 50) / 100.0", Math.class, mv.name(), mv.name());
-            case "Float" -> cbb.add("(float) ($T.round(($L.getLB() + $L.getUB()) * 50) / 100.0)", Math.class, mv.name(), mv.name());
+            case "Double" -> cbb.add("$T.round(new $T().nextDouble($L.getLB(), $L.getUB()) * 100) / 100.0", Math.class, Random.class, mv.name(), mv.name());
+            case "Float" -> cbb.add("(float) ($T.round(new $T().nextDouble($L.getLB(), $L.getUB()) * 100) / 100.0)", Math.class, Random.class, mv.name(), mv.name());
             case "Boolean" -> cbb.add("$L.getValue() == 1", mv.name());
             case "String" -> cbb.add("$L", mv.name());
             default -> throw new IllegalArgumentException("Unsupported type: " + mv.type());
