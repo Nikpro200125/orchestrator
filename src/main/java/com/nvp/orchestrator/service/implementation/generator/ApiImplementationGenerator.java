@@ -4,6 +4,7 @@ import com.github.curiousoddman.rgxgen.RgxGen;
 import com.nvp.orchestrator.exceptions.GenerationImplementationException;
 import com.nvp.orchestrator.exceptions.GenerationServiceException;
 import jakarta.validation.constraints.NotNull;
+import kotlin.Pair;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +14,7 @@ import org.reflections.scanners.Scanners;
 import org.reflections.util.ConfigurationBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.javapoet.*;
+import org.springframework.javapoet.MethodSpec.Builder;
 
 import javax.lang.model.element.Modifier;
 import java.io.Closeable;
@@ -47,6 +49,24 @@ public sealed abstract class ApiImplementationGenerator implements Closeable per
                 .forEach(this::generateImplementationForInterface);
     }
 
+    protected static Pair<Builder, Type> prepareSignature(Method method) {
+        MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder(method.getName())
+                .addModifiers(Modifier.PUBLIC)
+                .addAnnotation(Override.class);
+
+        // Добавляем параметры метода
+        for (Parameter parameter : method.getParameters()) {
+            methodBuilder.addParameter(TypeName.get(parameter.getParameterizedType()), parameter.getName());
+        }
+
+        // Указываем возвращаемый тип метода
+        Type returnType = method.getGenericReturnType();
+        TypeName returnTypeName = TypeName.get(returnType);
+        methodBuilder.returns(returnTypeName);
+
+        return new Pair<>(methodBuilder, returnType);
+    }
+
     private Collection<Class<?>> getClassesFromPackage() throws MalformedURLException {
         urlClassLoader = new URLClassLoader(new URL[]{generatedProjectPath.resolve("target/classes").toUri().toURL()});
         Path classesPath = generatedProjectPath.resolve("target/classes/org/openapitools/api");
@@ -63,24 +83,7 @@ public sealed abstract class ApiImplementationGenerator implements Closeable per
         return reflections.getSubTypesOf(Object.class);
     }
 
-    protected void generateImplementationForInterface(Class<?> apiInterface) {
-        String implClassName = apiInterface.getSimpleName().replaceAll("Api$", "ApiController");
-
-        TypeSpec.Builder classBuilder = TypeSpec.classBuilder(implClassName)
-                .addModifiers(Modifier.PUBLIC)
-                .addAnnotation(org.springframework.web.bind.annotation.RestController.class)
-                .addSuperinterface(apiInterface);
-
-        // Генерируем методы интерфейса
-        for (Method method : apiInterface.getMethods()) {
-            classBuilder.addMethod(generateMethodStub(getApiInterfaceName(apiInterface), method));
-        }
-
-        String packageName = apiInterface.getPackage().getName();
-        saveGeneratedClass(classBuilder, packageName);
-
-        log.info("Сгенерирован класс: {}", implClassName);
-    }
+    abstract protected void generateImplementationForInterface(Class<?> apiInterface);
 
     protected void saveGeneratedClass(TypeSpec.Builder classBuilder, String packageName) {
         TypeSpec implType = classBuilder.build();
@@ -95,8 +98,6 @@ public sealed abstract class ApiImplementationGenerator implements Closeable per
             throw new GenerationServiceException("Failed to write Java file");
         }
     }
-
-    abstract protected MethodSpec generateMethodStub(String apiInterfaceName, Method method);
 
     @NotNull
     protected static String getApiInterfaceName(Class<?> apiInterface) {

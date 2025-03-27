@@ -3,6 +3,7 @@ package com.nvp.orchestrator.service.implementation.generator;
 import com.nvp.orchestrator.exceptions.GenerationImplementationException;
 import com.nvp.orchestrator.model.ModelData;
 import com.nvp.orchestrator.model.ModelVariable;
+import kotlin.Pair;
 import lombok.extern.slf4j.Slf4j;
 import org.chocosolver.solver.Model;
 import org.chocosolver.solver.Solution;
@@ -32,6 +33,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public final class ContractsApiImplementationGenerator extends ApiImplementationGenerator {
 
+    private static final String HAS_BODY_ANNOTATION = "HasBody";
+
     private final Library library;
 
     public ContractsApiImplementationGenerator(Path generatedProjectPath, Library library) {
@@ -39,48 +42,27 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         this.library = library;
     }
 
-    @Override
-    protected MethodSpec generateMethodStub(String interfaceName, Method method) {
-        MethodSpec.Builder methodBuilder = MethodSpec.methodBuilder(method.getName())
-                .addModifiers(Modifier.PUBLIC)
-                .addAnnotation(Override.class);
+    private MethodSpec generateContractsMethodStub(Method method, Function function) {
+        List<Contract> contracts = function.getContracts();
 
-        // Добавляем параметры метода
-        for (Parameter parameter : method.getParameters()) {
-            methodBuilder.addParameter(TypeName.get(parameter.getParameterizedType()), parameter.getName());
+        if (contracts.isEmpty()) {
+            log.warn("No contracts found for method {}", method.getName());
+            return generateRandomMethodStub(method);
         }
 
-        // Указываем возвращаемый тип метода
-        Type returnType = method.getGenericReturnType();
-        TypeName returnTypeName = TypeName.get(returnType);
-        methodBuilder.returns(returnTypeName);
+        Pair<MethodSpec.Builder, Type> methodBuilderAndReturnType = prepareSignature(method);
+        MethodSpec.Builder methodBuilder = methodBuilderAndReturnType.getFirst();
+        Type returnType = methodBuilderAndReturnType.getSecond();
 
-        // if it has contracts use them to generate method body
-        if (library != null) {
-            Automaton automaton = getAutomaton(interfaceName, library);
-            if (automaton != null) {
-                Function function = getFunction(method, automaton);
-                if (function != null) {
-                    List<Contract> contracts = function.getContracts();
-                    if (!contracts.isEmpty()) {
-                        List<Contract> requires = getContractList(contracts, ContractKind.REQUIRES);
-                        List<Contract> ensures = getContractList(contracts, ContractKind.ENSURES);
-                        return generateMethodResponseCodeBlockFromContracts(methodBuilder, returnType, requires, ensures, method.getName(), method.getParameters());
-                    }
-                }
-            }
-        }
-
-        // Не найдены контракты - генерация случайных данных
-        log.info("No contracts found for method {}", method.getName());
-        methodBuilder.addStatement("return $L", generateRandomGeneratedObject(returnType));
-
-        return methodBuilder.build();
+        List<Contract> requires = getContractList(contracts, ContractKind.REQUIRES);
+        List<Contract> ensures = getContractList(contracts, ContractKind.ENSURES);
+        return generateMethodResponseCodeBlockFromContracts(methodBuilder, returnType, requires, ensures, method.getName(), method.getParameters());
     }
 
     @Override
     protected void generateImplementationForInterface(Class<?> apiInterface) {
         String implClassName = apiInterface.getSimpleName().replaceAll("Api$", "ApiController");
+        String apiInterfaceName = getApiInterfaceName(apiInterface);
 
         TypeSpec.Builder classBuilder = TypeSpec.classBuilder(implClassName)
                 .addModifiers(Modifier.PUBLIC)
@@ -89,15 +71,47 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
 
         // Генерируем методы интерфейса
         for (Method method : apiInterface.getMethods()) {
-            FieldSpec.Builder fieldBuilder = FieldSpec.builder(Integer.class, method.getName(), Modifier.PRIVATE).initializer("1");
-            classBuilder.addField(fieldBuilder.build());
-            classBuilder.addMethod(generateMethodStub(getApiInterfaceName(apiInterface), method));
+            // if it has contracts use them to generate method body
+            if (library != null) {
+                Automaton automaton = getAutomaton(apiInterfaceName, library);
+                if (automaton != null) {
+                    Function function = getFunction(method, automaton);
+                    if (function != null) {
+                        boolean isMethodHasBody = isMethodHasBody(function);
+                        if (isMethodHasBody) {
+                            continue;
+                        } else {
+                            FieldSpec.Builder fieldBuilder = FieldSpec.builder(Integer.class, method.getName(), Modifier.PRIVATE).initializer("1");
+                            classBuilder.addField(fieldBuilder.build());
+                            classBuilder.addMethod(generateContractsMethodStub(method, function));
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            classBuilder.addMethod(generateRandomMethodStub(method));
         }
 
         String packageName = apiInterface.getPackage().getName();
         saveGeneratedClass(classBuilder, packageName);
 
         log.info("Сгенерирован класс: {}", implClassName);
+    }
+
+    private MethodSpec generateRandomMethodStub(Method method) {
+        Pair<MethodSpec.Builder, Type> methodBuilderAndReturnType = prepareSignature(method);
+        MethodSpec.Builder methodBuilder = methodBuilderAndReturnType.getFirst();
+        Type returnType = methodBuilderAndReturnType.getSecond();
+
+        // Добавляем заглушку для возвращаемого значения
+        methodBuilder.addStatement("return $L", generateRandomGeneratedObject(returnType));
+
+        return methodBuilder.build();
+    }
+
+    private static boolean isMethodHasBody(Function function) {
+        return function.getAnnotationUsages().stream().anyMatch(a -> a.getAnnotationReference().getName().equals(HAS_BODY_ANNOTATION));
     }
 
     @NotNull
@@ -291,9 +305,9 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
                 .collect(Collectors.joining(", "));
         CodeBlock.Builder cbb = CodeBlock.builder();
         if (!intVars.isEmpty() && !realVars.isEmpty()) {
-            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextInt()), $T.realVarSearch($L))", Search.class, IntVar.class, intVars, Random.class, Search.class, realVars);
+            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextLong()), $T.realVarSearch($L))", Search.class, IntVar.class, intVars, Random.class, Search.class, realVars);
         } else if (!intVars.isEmpty()) {
-            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextInt()))", Search.class, IntVar.class, intVars, Random.class);
+            cbb.addStatement("solver.setSearch($T.randomSearch(new $T[]{ $L }, new $T().nextLong()))", Search.class, IntVar.class, intVars, Random.class);
         } else if (!realVars.isEmpty()) {
             cbb.addStatement("solver.setSearch($T.realVarSearch($L))", Search.class, realVars);
         }
