@@ -1,6 +1,7 @@
 package com.nvp.orchestrator.service.implementation.generator;
 
 import com.nvp.orchestrator.exceptions.GenerationImplementationException;
+import com.nvp.orchestrator.model.BodyFunction;
 import com.nvp.orchestrator.model.ModelData;
 import com.nvp.orchestrator.model.ModelVariable;
 import kotlin.Pair;
@@ -59,6 +60,23 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
         return generateMethodResponseCodeBlockFromContracts(methodBuilder, returnType, requires, ensures, method.getName(), method.getParameters());
     }
 
+    private MethodSpec generateBodyMethodStub(Method method, Function function) {
+        Pair<MethodSpec.Builder, Type> methodBuilderAndReturnType = prepareSignature(method);
+        MethodSpec.Builder methodBuilder = methodBuilderAndReturnType.getFirst();
+        Type returnType = methodBuilderAndReturnType.getSecond();
+
+        if (!function.getHasBody()) {
+            log.warn("No body found for method {}", method.getName());
+            return generateRandomMethodStub(method);
+        }
+
+        BodyFunction bodyFunction = new BodyFunction(method, function, returnType, urlClassLoader);
+
+        bodyFunction.generateBodyFunction(methodBuilder);
+
+        return methodBuilder.build();
+    }
+
     @Override
     protected void generateImplementationForInterface(Class<?> apiInterface) {
         String implClassName = apiInterface.getSimpleName().replaceAll("Api$", "ApiController");
@@ -79,13 +97,13 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
                     if (function != null) {
                         boolean isMethodHasBody = isMethodHasBody(function);
                         if (isMethodHasBody) {
-                            continue;
+                            classBuilder.addMethod(generateBodyMethodStub(method, function));
                         } else {
                             FieldSpec.Builder fieldBuilder = FieldSpec.builder(Integer.class, method.getName(), Modifier.PRIVATE).initializer("1");
                             classBuilder.addField(fieldBuilder.build());
                             classBuilder.addMethod(generateContractsMethodStub(method, function));
-                            continue;
                         }
+                        continue;
                     }
                 }
             }

@@ -4,10 +4,7 @@ import com.nvp.orchestrator.enums.ParameterType;
 import com.nvp.orchestrator.logs.OutputRedirect;
 import com.nvp.orchestrator.enums.MethodAnnotation;
 import com.nvp.orchestrator.exceptions.LibSLParsingException;
-import io.swagger.v3.oas.models.OpenAPI;
-import io.swagger.v3.oas.models.Operation;
-import io.swagger.v3.oas.models.PathItem;
-import io.swagger.v3.oas.models.Paths;
+import io.swagger.v3.oas.models.*;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.*;
 import io.swagger.v3.oas.models.parameters.Parameter;
@@ -60,17 +57,26 @@ public final class LibSLParserServiceImpl {
         OpenAPI openAPI = new OpenAPI().info(new Info().title("Generated API").version("1.0.0"));
 
         Paths paths = new Paths();
+        Components components = new Components();
 
         library.getAutomata().forEach(automaton -> {
             automaton.getFunctions().forEach(function -> {
-                PathItem pathItem = generatePathItem(function);
+                PathItem pathItem = generatePathItem(function, components);
                 if (pathItem != null) {
                     paths.addPathItem(generatePathName(automaton, function, pathItem), pathItem);
                 }
             });
         });
 
+        library.getResolvedTypes().stream().filter(type -> type instanceof StructuredType)
+                .filter(type -> components.getSchemas().get(type.getName()) == null)
+                .forEach(type -> {
+                    Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(type));
+                    components.addSchemas(type.getName(), schema);
+                });
+
         openAPI.paths(paths);
+        openAPI.components(components);
         return openAPI;
     }
 
@@ -91,7 +97,7 @@ public final class LibSLParserServiceImpl {
         return pathName.get();
     }
 
-    private static PathItem generatePathItem(Function function) {
+    private static PathItem generatePathItem(Function function, Components components) {
         AnnotationUsage methodAnnotation = function.getAnnotationUsages()
                 .stream()
                 .filter(a -> MethodAnnotation.isMethodAnnotation(a.getAnnotationReference().getName()))
@@ -112,16 +118,16 @@ public final class LibSLParserServiceImpl {
         Operation operation = new Operation();
         function.getArgs().forEach(arg -> {
             if (isArgumentWithAnnotation(arg, ParameterType.REQUEST_BODE)) {
-                operation.requestBody(generateRequestBody(arg));
+                operation.requestBody(generateRequestBody(arg, components));
                 operation.addExtension("x-codegen-request-body-name", arg.getName());
             } else if (isArgumentWithAnnotation(arg, ParameterType.PATH)) {
-                operation.addParametersItem(generatePathParameter(arg));
+                operation.addParametersItem(generatePathParameter(arg, components));
             } else if (isArgumentWithAnnotation(arg, ParameterType.QUERY)) {
-                operation.addParametersItem(generateQueryParameter(arg));
+                operation.addParametersItem(generateQueryParameter(arg, components));
             }
         });
 
-        generateResponses(function, operation);
+        generateResponses(function, operation, components);
 
         PathItem pathItem = new PathItem();
         switch (MethodAnnotation.valueOf(methodAnnotation.getAnnotationReference().getName())) {
@@ -135,25 +141,25 @@ public final class LibSLParserServiceImpl {
         return pathItem;
     }
 
-    private static void generateResponses(Function function, Operation operation) {
+    private static void generateResponses(Function function, Operation operation, Components components) {
         ApiResponse response = new ApiResponse();
         response.description("Successful operation");
 
         if (function.getReturnType() != null) {
-            addResponse(function, response);
+            addResponse(function, response, components);
         }
 
         operation.responses(new ApiResponses().addApiResponse("200", response));
     }
 
-    private static void addResponse(Function function, ApiResponse response) {
-        Content content = generateContentByTypeReference(Objects.requireNonNull(function.getReturnType()));
+    private static void addResponse(Function function, ApiResponse response, Components components) {
+        Content content = generateContentByTypeReference(Objects.requireNonNull(function.getReturnType()), components);
 
         response.content(content);
     }
 
-    private static RequestBody generateRequestBody(FunctionArgument argument) {
-        Content content = generateContentByTypeReference(Objects.requireNonNull(argument.getTypeReference()));
+    private static RequestBody generateRequestBody(FunctionArgument argument, Components components) {
+        Content content = generateContentByTypeReference(Objects.requireNonNull(argument.getTypeReference()), components);
 
         RequestBody requestBody = new RequestBody();
         requestBody.content(content);
@@ -161,11 +167,12 @@ public final class LibSLParserServiceImpl {
         return requestBody;
     }
 
-    private static Content generateContentByTypeReference(TypeReference typeReference) {
-        Schema<?> schema = generateArgumentSchema(Objects.requireNonNull(typeReference.resolve()));
+    private static Content generateContentByTypeReference(TypeReference typeReference, Components components) {
+        String parameterName = typeReference.getName();
+        components.addSchemas(parameterName, generateArgumentSchema(Objects.requireNonNull(typeReference.resolve())));
 
         MediaType mediaType = new MediaType();
-        mediaType.schema(schema);
+        mediaType.schema(new Schema<>().$ref("#/components/schemas/" + parameterName));
 
         Content content = new Content();
         content.addMediaType(APPLICATION_JSON, mediaType);
@@ -173,19 +180,23 @@ public final class LibSLParserServiceImpl {
         return content;
     }
 
-    private static Parameter generatePathParameter(FunctionArgument argument) {
+    private static Parameter generatePathParameter(FunctionArgument argument, Components components) {
+        String parameterName = argument.getTypeReference().getName();
+        components.addSchemas(parameterName, generateArgumentSchema(Objects.requireNonNull(argument.getTypeReference().resolve())));
         return new Parameter()
                 .name(argument.getName())
                 .in(PATH)
                 .required(true)
-                .schema(generateArgumentSchema(Objects.requireNonNull(argument.getTypeReference().resolve())));
+                .schema(new Schema<>().$ref("#/components/schemas/" + parameterName));
     }
 
-    private static Parameter generateQueryParameter(FunctionArgument argument) {
+    private static Parameter generateQueryParameter(FunctionArgument argument, Components components) {
+        String parameterName = argument.getTypeReference().getName();
+        components.addSchemas(parameterName, generateArgumentSchema(Objects.requireNonNull(argument.getTypeReference().resolve())));
         return new Parameter()
                 .name(argument.getName())
                 .in("query")
-                .schema(generateArgumentSchema(Objects.requireNonNull(argument.getTypeReference().resolve())));
+                .schema(new Schema<>().$ref("#/components/schemas/" + parameterName));
     }
 
     private static int getNumberOfRequestBodies(Function function) {

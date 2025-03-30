@@ -12,12 +12,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(IllegalArgumentException.class)
     public String handleIllegalArgumentException(IllegalArgumentException e) {
+        logger.error(e);
         return e.getMessage();
     }
 
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     @ExceptionHandler(Exception.class)
     public String handleException(Exception e) {
-        return e.getMessage();
+        logger.error(e);
+        return e.toString();
     }
 }

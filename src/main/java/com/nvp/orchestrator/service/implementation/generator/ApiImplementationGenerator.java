@@ -36,9 +36,9 @@ import java.util.stream.IntStream;
 @RequiredArgsConstructor
 public sealed abstract class ApiImplementationGenerator implements Closeable permits ContractsApiImplementationGenerator, RandomApiImplementationGenerator {
 
-    private static final int MAX_COLLECTION_SIZE = 10;
-    private final Path generatedProjectPath;
-    private URLClassLoader urlClassLoader;
+    protected static final int MAX_COLLECTION_SIZE = 10;
+    protected final Path generatedProjectPath;
+    protected URLClassLoader urlClassLoader;
 
     @SneakyThrows
     public void generate() {
