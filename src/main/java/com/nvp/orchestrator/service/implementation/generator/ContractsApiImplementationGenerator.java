@@ -70,7 +70,7 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
             return generateRandomMethodStub(method);
         }
 
-        BodyFunction bodyFunction = new BodyFunction(method, function, returnType, urlClassLoader);
+        BodyFunction bodyFunction = new BodyFunction(function, returnType, urlClassLoader, library);
 
         bodyFunction.generateBodyFunction(methodBuilder);
 

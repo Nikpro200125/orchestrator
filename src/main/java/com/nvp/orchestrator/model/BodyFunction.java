@@ -5,36 +5,45 @@ import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.research.libsl.nodes.*;
 import org.jetbrains.research.libsl.type.*;
 import org.springframework.http.ResponseEntity;
+import org.springframework.javapoet.CodeBlock;
 import org.springframework.javapoet.MethodSpec;
 
-import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.net.URLClassLoader;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 public class BodyFunction {
-    private final Method method;
     private final Function function;
     private final Type returnType;
     private final URLClassLoader urlClassLoader;
+    private final Library library;
 
-    public BodyFunction(Method method, Function function, Type returnType, URLClassLoader urlClassLoader) {
-        this.method = method;
+    public BodyFunction(Function function, Type returnType, URLClassLoader urlClassLoader, Library library) {
         this.function = function;
         this.returnType = returnType;
         this.urlClassLoader = urlClassLoader;
+        this.library = library;
     }
 
     public void generateBodyFunction(MethodSpec.Builder methodBuilder) {
         generateReturnObject(methodBuilder);
         List<Statement> statements = function.getStatements();
+        CodeBlock.Builder cbb = CodeBlock.builder();
 
         for (Statement statement : statements) {
-            generateStatement(statement, methodBuilder);
+            generateStatement(statement, cbb);
         }
+
+        methodBuilder.addCode(cbb.build());
 
         generateReturnStatement(methodBuilder);
     }
@@ -61,7 +70,7 @@ public class BodyFunction {
         methodBuilder.addStatement("return $T.ok(result)", ResponseEntity.class);
     }
 
-    private void generateStatement(Statement statement, MethodSpec.Builder methodBuilder) {
+    private void generateStatement(Statement statement, CodeBlock.Builder methodBuilder) {
         switch (statement) {
             case VariableDeclaration variableDeclaration -> {
                 log.debug("Variable declaration: {}", variableDeclaration);
@@ -97,7 +106,7 @@ public class BodyFunction {
     }
 
     private String resolveExpression(Expression expression, boolean isRightValue, boolean isTopLevel) {
-        return switch(expression) {
+        return switch (expression) {
             case VariableAccess variableAccess -> {
                 if (isTopLevel) {
                     if (variableAccess.getChildAccess() != null) {
@@ -107,7 +116,7 @@ public class BodyFunction {
                     yield variableAccess.getFieldName();
                 } else {
                     if (variableAccess.getChildAccess() != null) {
-                        yield ".get" + ModelData.capitalizeFirstLetter(variableAccess.getFieldName()) + "()" + resolveExpression(variableAccess.getChildAccess(), isRightValue,false);
+                        yield ".get" + ModelData.capitalizeFirstLetter(variableAccess.getFieldName()) + "()" + resolveExpression(variableAccess.getChildAccess(), isRightValue, false);
                     }
 
                     yield (isRightValue
@@ -141,7 +150,84 @@ public class BodyFunction {
                     Class<?> clazz = resolveClassByOldType(procExpression.getProcedureCall().getName());
                     yield "new " + clazz.getSimpleName() + "()";
                 } catch (ClassNotFoundException e) {
-                    throw new GenerationImplementationException("Class not found: " + procExpression.getProcedureCall().getName());
+                    String procName = procExpression.getProcedureCall().getName();
+                    List<Expression> arguments = procExpression.getProcedureCall().getArguments();
+                    Function libFunction = library.getAutomata().stream().map(Automaton::getProcDeclarations).flatMap(List::stream)
+                            .filter(f -> f.getName().equals(procName))
+                            .findFirst()
+                            .orElseThrow(() -> new GenerationImplementationException("Function not found: " + procName));
+
+                    // Map arguments to parameters
+                    if (arguments.size() != libFunction.getArgs().size()) {
+                        throw new GenerationImplementationException("Argument count mismatch for function: " + procName);
+                    }
+
+
+                    // Build argument mapping from procedure parameters to provided arguments
+                    Map<String, String> argMapping = new HashMap<>();
+                    List<FunctionArgument> procArgs = libFunction.getArgs();
+                    for (int i = 0; i < procArgs.size(); i++) {
+                        String argName = procArgs.get(i).getName();
+                        String resolvedArgValue = resolveExpression(arguments.get(i), true);
+                        argMapping.put(argName, resolvedArgValue);
+                    }
+
+                    // Collect all variable declarations in the procedure to prefixify them
+                    List<String> procedureLocalVars = libFunction.getStatements().stream()
+                            .filter(s -> s instanceof VariableDeclaration)
+                            .map(s -> ((VariableDeclaration) s).getVariable().getName())
+                            .toList();
+
+                    CodeBlock.Builder cbb = CodeBlock.builder();
+                    // Modify the code generation to use prefixed variable names
+                    libFunction.getStatements().forEach(
+                            statement -> generateStatement(statement, cbb)
+                    );
+
+
+                    // Generate a random prefix for all procedure local variables
+
+                    String procPrefix = "__proc_" + Math.abs(procName.hashCode()) + "_";
+                    procedureLocalVars.forEach(
+                            plv -> argMapping.putIfAbsent(plv, procPrefix + plv)
+                    );
+
+                    // Replace arguments in the code block
+                    String inlinedCode = cbb.build().toString();
+                    // Replace all argument references in the inlined code
+                    // First, create unique placeholders for each variable to avoid interference
+                    Map<String, String> placeholders = new HashMap<>();
+                    int uniqueId = 0;
+                    for (String key : argMapping.keySet()) {
+                        String placeholder = "__TEMP_PLACEHOLDER_" + (uniqueId++) + "__";
+                        placeholders.put(key, placeholder);
+
+                        // Replace original variable with placeholder
+                        String pattern = "\\b" + Pattern.quote(key) + "\\b";
+                        inlinedCode = inlinedCode.replaceAll(pattern, Matcher.quoteReplacement(placeholder));
+                    }
+
+                    // Replace placeholders with prefixed vars or argument values
+                    for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+                        String key = entry.getKey();
+                        String placeholder = entry.getValue();
+
+                        if (argMapping.containsKey(key)) {
+                            inlinedCode = inlinedCode.replace(placeholder, argMapping.get(key));
+                        } else {
+                            inlinedCode = inlinedCode.replace(placeholder, procPrefix + key);
+                        }
+                    }
+
+                    log.debug("Inlined function: {}", procName);
+                    boolean hasResult = libFunction.getReturnType() != null;
+                    if (hasResult) {
+                        inlinedCode = inlinedCode.replace("result =", "return");
+                        yield CodeBlock.builder().add("(($T<$T>) () -> { " + inlinedCode + " }).get()", Supplier.class, resolveType(libFunction.getReturnType().resolve())).build().toString();
+                    } else {
+                        // Use Consumer pattern for code that doesn't return a result
+                        yield CodeBlock.builder().add("(($T<$T>) (x) -> { " + inlinedCode + " }).accept(null)", Consumer.class, Object.class).build().toString();
+                    }
                 }
             }
             default -> {
@@ -173,7 +259,7 @@ public class BodyFunction {
             }
             default -> {
                 log.info("Not specified type: {}", type);
-               throw new GenerationImplementationException("Not specified type: " + type);
+                throw new GenerationImplementationException("Not specified type: " + type);
             }
         };
     }

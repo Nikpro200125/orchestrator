@@ -130,7 +130,7 @@ public final class LibSLParserServiceImpl {
         generateResponses(function, operation, components);
 
         PathItem pathItem = new PathItem();
-        switch (MethodAnnotation.valueOf(methodAnnotation.getAnnotationReference().getName())) {
+        switch (MethodAnnotation.valueOf(methodAnnotation.getAnnotationReference().getName().toUpperCase())) {
             case GET -> pathItem.get(operation);
             case POST -> pathItem.post(operation);
             case PUT -> pathItem.put(operation);

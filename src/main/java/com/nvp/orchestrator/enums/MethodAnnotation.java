@@ -5,7 +5,7 @@ public enum MethodAnnotation {
 
     public static boolean isMethodAnnotation(String value) {
         for (MethodAnnotation methodAnnotation : MethodAnnotation.values()) {
-            if (methodAnnotation.name().equals(value)) {
+            if (methodAnnotation.name().equals(value.toUpperCase())) {
                 return true;
             }
         }
