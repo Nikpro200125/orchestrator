@@ -20,6 +20,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(Exception.class)
     public String handleException(Exception e) {
         logger.error(e);
-        return e.toString();
+        return e.getMessage() + "\n" + e.getCause();
     }
 }

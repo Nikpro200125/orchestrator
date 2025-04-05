@@ -76,6 +76,22 @@ public class BodyFunction {
                 log.debug("Variable declaration: {}", variableDeclaration);
                 VariableWithInitialValue variable = variableDeclaration.getVariable();
                 ModelVariable modelVariable = new ModelVariable(variable.getName(), resolveType(variable.getTypeReference().resolve()));
+                if (variable.getInitialValue() instanceof ProcExpression procExpression) {
+                    String value = resolveExpression(variable.getInitialValue(), true);
+                    Matcher m = Pattern.compile("__proc_[0-9]+_").matcher(value);
+                    String returnVariable = m.find()
+                            ? m.group()
+                            : null;
+                    if (returnVariable == null) {
+                        log.error("Return variable not found in variable declaration: {}", variableDeclaration);
+                        throw new GenerationImplementationException("Return variable not found in variable declaration: " + variableDeclaration);
+                    }
+
+                    methodBuilder.add(value);
+                    methodBuilder.addStatement("$T $L = $L", modelVariable.type(), modelVariable.name(), returnVariable);
+
+                    return;
+                }
                 methodBuilder.addStatement("$T $L = $L", modelVariable.type(), modelVariable.name(), variable.getInitialValue() == null ? "null" : resolveExpression(variable.getInitialValue(), true));
             }
             case Assignment assignment -> {
@@ -92,7 +108,30 @@ public class BodyFunction {
                     }
                 }
 
+                if (assignment.getValue() instanceof ProcExpression procExpression) {
+                    // find the procedure return value in value by regex __proc_[0-9]+_ and save it to the variable
+
+                    Matcher m = Pattern.compile("__proc_[0-9]+_").matcher(value);
+                    String returnVariable = m.find()
+                            ? m.group()
+                            : null;
+                    if (returnVariable == null) {
+                        log.error("Return variable not found in assignment: {}", assignment);
+                        throw new GenerationImplementationException("Return variable not found in assignment: " + assignment);
+                    }
+
+                    methodBuilder.add(value);
+                    methodBuilder.addStatement("$L = $L", variableName, returnVariable);
+
+                    return;
+                }
+
                 methodBuilder.addStatement("$L = $L", variableName, value);
+            }
+            case ExpressionStatement expressionStatement -> {
+                log.debug("Expression statement: {}", expressionStatement);
+                String expression = resolveExpression(expressionStatement.getExpression(), true);
+                methodBuilder.add(expression);
             }
             default -> {
                 log.error("Unknown statement type: {}", statement);
@@ -147,6 +186,9 @@ public class BodyFunction {
             case ProcExpression procExpression -> {
                 // is constructor
                 try {
+                    if (!isRightValue) {
+                        throw new GenerationImplementationException("Constructor call in assignment without left value" + procExpression);
+                    }
                     Class<?> clazz = resolveClassByOldType(procExpression.getProcedureCall().getName());
                     yield "new " + clazz.getSimpleName() + "()";
                 } catch (ClassNotFoundException e) {
@@ -187,7 +229,7 @@ public class BodyFunction {
 
                     // Generate a random prefix for all procedure local variables
 
-                    String procPrefix = "__proc_" + Math.abs(procName.hashCode()) + "_";
+                    String procPrefix = "__proc_" + System.currentTimeMillis() + "_";
                     procedureLocalVars.forEach(
                             plv -> argMapping.putIfAbsent(plv, procPrefix + plv)
                     );
@@ -222,12 +264,9 @@ public class BodyFunction {
                     log.debug("Inlined function: {}", procName);
                     boolean hasResult = libFunction.getReturnType() != null;
                     if (hasResult) {
-                        inlinedCode = inlinedCode.replace("result =", "return");
-                        yield CodeBlock.builder().add("(($T<$T>) () -> { " + inlinedCode + " }).get()", Supplier.class, resolveType(libFunction.getReturnType().resolve())).build().toString();
-                    } else {
-                        // Use Consumer pattern for code that doesn't return a result
-                        yield CodeBlock.builder().add("(($T<$T>) (x) -> { " + inlinedCode + " }).accept(null)", Consumer.class, Object.class).build().toString();
+                        inlinedCode = inlinedCode.replace("result =", CodeBlock.builder().add("$T $L = ", resolveType(libFunction.getReturnType().resolve()), procPrefix).build().toString());
                     }
+                    yield inlinedCode;
                 }
             }
             default -> {

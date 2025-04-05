@@ -63,7 +63,7 @@ public final class ContractsServiceGenerator extends ServiceGenerator {
             generator.generate();
         } catch (Exception e) {
             log.error("Failed to generate API implementations", e);
-            throw new GenerationServiceException("Failed to generate API implementations");
+            throw new GenerationServiceException("Failed to generate API implementations", e);
         }
     }
 }

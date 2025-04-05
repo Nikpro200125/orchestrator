@@ -8,4 +8,8 @@ public class GenerationServiceException extends RuntimeException {
     public GenerationServiceException(String message) {
         super(message);
     }
+
+    public GenerationServiceException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }
