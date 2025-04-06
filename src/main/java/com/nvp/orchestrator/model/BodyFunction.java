@@ -133,6 +133,25 @@ public class BodyFunction {
                 String expression = resolveExpression(expressionStatement.getExpression(), true);
                 methodBuilder.add(expression);
             }
+            case IfStatement ifStatement -> {
+                log.debug("If statement: {}", ifStatement);
+                String condition = resolveExpression(ifStatement.getValue(), true);
+                methodBuilder.beginControlFlow("if ($L)", condition);
+                CodeBlock.Builder cbb = CodeBlock.builder();
+                for (Statement state : ifStatement.getIfStatements()) {
+                    generateStatement(state, cbb);
+                }
+                methodBuilder.add(cbb.build());
+                if (ifStatement.getElseStatements() != null && !ifStatement.getElseStatements().getStatements().isEmpty()) {
+                    methodBuilder.nextControlFlow("else");
+                    CodeBlock.Builder elseCbb = CodeBlock.builder();
+                    for (Statement state : ifStatement.getElseStatements().getStatements()) {
+                        generateStatement(state, elseCbb);
+                    }
+                    methodBuilder.add(elseCbb.build());
+                }
+                methodBuilder.endControlFlow();
+            }
             default -> {
                 log.error("Unknown statement type: {}", statement);
                 throw new GenerationImplementationException("Unknown statement type: " + statement);
