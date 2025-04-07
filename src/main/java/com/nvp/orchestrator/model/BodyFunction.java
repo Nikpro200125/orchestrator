@@ -76,8 +76,8 @@ public class BodyFunction {
                 log.debug("Variable declaration: {}", variableDeclaration);
                 VariableWithInitialValue variable = variableDeclaration.getVariable();
                 ModelVariable modelVariable = new ModelVariable(variable.getName(), resolveType(variable.getTypeReference().resolve()));
+                String value = resolveExpression(variable.getInitialValue(), true);
                 if (variable.getInitialValue() instanceof ProcExpression procExpression) {
-                    String value = resolveExpression(variable.getInitialValue(), true);
                     Matcher m = Pattern.compile("__proc_[0-9]+_").matcher(value);
                     String returnVariable = m.find()
                             ? m.group()
@@ -88,11 +88,9 @@ public class BodyFunction {
                     }
 
                     methodBuilder.add(value);
-                    methodBuilder.addStatement("$T $L = $L", modelVariable.type(), modelVariable.name(), returnVariable);
-
-                    return;
+                    value = returnVariable;
                 }
-                methodBuilder.addStatement("$T $L = $L", modelVariable.type(), modelVariable.name(), variable.getInitialValue() == null ? "null" : resolveExpression(variable.getInitialValue(), true));
+                methodBuilder.addStatement("$T $L = $L", modelVariable.type(), modelVariable.name(), variable.getInitialValue() == null ? "null" :value);
             }
             case Assignment assignment -> {
                 log.debug("Assignment: {}", assignment);
@@ -100,17 +98,7 @@ public class BodyFunction {
 
                 String value = resolveExpression(assignment.getValue(), true);
 
-                if (assignment.getLeft() instanceof VariableAccess variableAccess) {
-                    if (variableAccess.getChildAccess() != null) {
-                        // update the value of the child access using setters
-                        methodBuilder.addStatement("$L$L)", variableName, value);
-                        return;
-                    }
-                }
-
                 if (assignment.getValue() instanceof ProcExpression procExpression) {
-                    // find the procedure return value in value by regex __proc_[0-9]+_ and save it to the variable
-
                     Matcher m = Pattern.compile("__proc_[0-9]+_").matcher(value);
                     String returnVariable = m.find()
                             ? m.group()
@@ -121,9 +109,15 @@ public class BodyFunction {
                     }
 
                     methodBuilder.add(value);
-                    methodBuilder.addStatement("$L = $L", variableName, returnVariable);
+                    value = returnVariable;
+                }
 
-                    return;
+                if (assignment.getLeft() instanceof VariableAccess variableAccess) {
+                    if (variableAccess.getChildAccess() != null) {
+                        // update the value of the child access using setters
+                        methodBuilder.addStatement("$L$L)", variableName, value);
+                        return;
+                    }
                 }
 
                 methodBuilder.addStatement("$L = $L", variableName, value);
@@ -179,12 +173,12 @@ public class BodyFunction {
 
                     yield (isRightValue
                             ? ".get" + ModelData.capitalizeFirstLetter(variableAccess.getFieldName()) + "()"
-                            : ".set" + ModelData.capitalizeFirstLetter(variableAccess.getFieldName()) + "(");
+                            : ".get" + ModelData.capitalizeFirstLetter(variableAccess.getFieldName()) + "().set(");
                 }
             }
             case ArrayAccess arrayAccess -> {
                 String index = Objects.requireNonNull(arrayAccess.getIndex().getValue()).toString();
-                yield (isRightValue ? ".get(" + index + ")" : ".set(" + index);
+                yield (isRightValue ? ".get(" + index + ")" : ".set(" + index + ", ");
             }
             case BinaryOpExpression binaryOpExpression -> {
                 String left = resolveExpression(binaryOpExpression.getLeft(), isRightValue);
