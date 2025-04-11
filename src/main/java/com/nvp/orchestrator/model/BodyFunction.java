@@ -11,12 +11,7 @@ import org.springframework.javapoet.MethodSpec;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.net.URLClassLoader;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -153,7 +148,7 @@ public class BodyFunction {
         }
     }
 
-    private String resolveExpression(Expression expression, boolean isRightValue) {
+    public String resolveExpression(Expression expression, boolean isRightValue) {
         return resolveExpression(expression, isRightValue, true);
     }
 
@@ -282,6 +277,19 @@ public class BodyFunction {
                     yield inlinedCode;
                 }
             }
+            case ActionExpression actionExpression -> {
+                String actionName = actionExpression.getActionUsage().getActionReference().getName();
+
+                Action action = getActionByName(actionName);
+
+                if (!action.validateArgumentTypes(actionExpression.getActionUsage())) {
+                    throw new GenerationImplementationException("Несовместимые типы аргументов для действия " + actionName);
+                }
+
+                CodeBlock codeBlock = action.generateCode(actionExpression.getActionUsage());
+                yield codeBlock.toString();
+            }
+            case null -> null;
             default -> {
                 log.error("Unknown expression type: {}", expression);
                 throw new GenerationImplementationException("Unknown expression type: " + expression);
@@ -318,6 +326,18 @@ public class BodyFunction {
 
     private Class<?> resolveClassByOldType(String className) throws ClassNotFoundException {
         return urlClassLoader.loadClass("org.openapitools.model." + className);
+    }
+
+    private Action getActionByName(String actionName) {
+        switch (actionName) {
+            case "ADD_ACTION" -> {
+                return new ArraySumAction(this);
+            }
+            default -> {
+                log.error("Unknown action: {}", actionName);
+                throw new GenerationImplementationException("Unknown action: " + actionName);
+            }
+        }
     }
 
 }
