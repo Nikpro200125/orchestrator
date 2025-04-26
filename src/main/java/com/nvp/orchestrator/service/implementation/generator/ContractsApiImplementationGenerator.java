@@ -290,6 +290,8 @@ public final class ContractsApiImplementationGenerator extends ApiImplementation
             cbb.addStatement("$T $L = model.realVar($S, $L)", RealVar.class, modelVariable.name(), modelVariable.name(), path);
         } else if (type == Boolean.class) {
             cbb.addStatement("$T $L = model.boolVar($S, $L)", BoolVar.class, modelVariable.name(), modelVariable.name(), path);
+        } else if (type == String.class) {
+            cbb.addStatement("$T $L = $L", String.class, modelVariable.name(), path);
         } else {
             throw new GenerationImplementationException("Unsupported type " + type.getName());
         }
