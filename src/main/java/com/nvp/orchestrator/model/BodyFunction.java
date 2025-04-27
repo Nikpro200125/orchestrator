@@ -91,34 +91,20 @@ public class BodyFunction {
                 log.debug("Assignment: {}", assignment);
                 String variableName = resolveExpression(assignment.getLeft(), false);
 
-                String value;
+                String value = resolveExpression(assignment.getValue(), true);
 
                 if (assignment.getValue() instanceof ProcExpression procExpression) {
-                    if (List.of("nextInt", "nextDouble").contains(procExpression.getProcedureCall().getName())) {
-                        CodeBlock.Builder cbb = CodeBlock.builder();
-                        cbb.add("new $T()."
-                                + procExpression.getProcedureCall().getName()
-                                + "("
-                                + procExpression.getProcedureCall().getArguments().stream()
-                                .map(arg -> ((Atomic)arg).getValue().toString())
-                                .collect(Collectors.joining(", "))
-                                + ")", Random.class);
-                        value = cbb.build().toString();
-                    } else {
-                        value = resolveExpression(assignment.getValue(), true);
-                        Matcher m = Pattern.compile("__proc_[0-9]+_").matcher(value);
-                        String returnVariable = m.find()
-                                ? m.group()
-                                : null;
-                        if (returnVariable != null) {
+                    value = resolveExpression(assignment.getValue(), true);
+                    Matcher m = Pattern.compile("__proc_[0-9]+_").matcher(value);
+                    String returnVariable = m.find()
+                            ? m.group()
+                            : null;
+                    if (returnVariable != null) {
 //                            log.error("Return variable not found in assignment: {}", assignment);
 //                            throw new GenerationImplementationException("Return variable not found in assignment: " + assignment);
-                            methodBuilder.add(value);
-                            value = returnVariable;
-                        }
+                        methodBuilder.add(value);
+                        value = returnVariable;
                     }
-                } else {
-                    value = resolveExpression(assignment.getValue(), true);
                 }
 
                 if (assignment.getLeft() instanceof VariableAccess variableAccess) {
@@ -189,6 +175,15 @@ public class BodyFunction {
                 String index = Objects.requireNonNull(arrayAccess.getIndex().getValue()).toString();
                 yield (isRightValue ? ".get(" + index + ")" : ".set(" + index + ", ");
             }
+            case UnaryOpExpression unaryOpExpression -> {
+                String value = resolveExpression(unaryOpExpression.getValue(), isRightValue);
+                if (unaryOpExpression.getOp() == ArithmeticUnaryOp.INVERSION) {
+                    yield "!" + value;
+                } else {
+                    log.error("Unknown unary operator: {}", unaryOpExpression.getOp());
+                    throw new GenerationImplementationException("Unknown unary operator: " + unaryOpExpression.getOp());
+                }
+            }
             case BinaryOpExpression binaryOpExpression -> {
                 String left = resolveExpression(binaryOpExpression.getLeft(), isRightValue);
                 String right = resolveExpression(binaryOpExpression.getRight(), isRightValue);
@@ -206,6 +201,22 @@ public class BodyFunction {
                 yield Objects.requireNonNull(floatLiteral.getValue()).toString();
             }
             case ProcExpression procExpression -> {
+                if (List.of("nextInt", "nextDouble").contains(procExpression.getProcedureCall().getName())) {
+                    CodeBlock.Builder cbb = CodeBlock.builder();
+                    cbb.add("new $T()."
+                            + procExpression.getProcedureCall().getName()
+                            + "("
+                            + procExpression.getProcedureCall().getArguments().stream()
+                            .map(arg -> ((Atomic) arg).getValue().toString())
+                            .collect(Collectors.joining(", "))
+                            + ")", Random.class);
+                    yield cbb.build().toString();
+                }
+                if ("equals".equals(procExpression.getProcedureCall().getName())) {
+                    String left = resolveExpression(procExpression.getProcedureCall().getArguments().get(0), isRightValue);
+                    String right = resolveExpression(procExpression.getProcedureCall().getArguments().get(1), isRightValue);
+                    yield CodeBlock.builder().add("$T.equals(" + left + ", " + right + ")", Objects.class).build().toString();
+                }
                 // is constructor
                 try {
                     if (!isRightValue) {
@@ -309,6 +320,7 @@ public class BodyFunction {
                 CodeBlock codeBlock = action.generateCode(actionExpression.getActionUsage());
                 yield codeBlock.toString();
             }
+            case NullLiteral nullLiteral -> null;
             case null -> null;
             default -> {
                 log.error("Unknown expression type: {}", expression);
