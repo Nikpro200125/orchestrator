@@ -14,6 +14,7 @@ import java.net.URLClassLoader;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class BodyFunction {
@@ -77,34 +78,47 @@ public class BodyFunction {
                     String returnVariable = m.find()
                             ? m.group()
                             : null;
-                    if (returnVariable == null) {
-                        log.error("Return variable not found in variable declaration: {}", variableDeclaration);
-                        throw new GenerationImplementationException("Return variable not found in variable declaration: " + variableDeclaration);
+                    if (returnVariable != null) {
+//                        log.error("Return variable not found in variable declaration: {}", variableDeclaration);
+//                        throw new GenerationImplementationException("Return variable not found in variable declaration: " + variableDeclaration);
+                        methodBuilder.add(value);
+                        value = returnVariable;
                     }
-
-                    methodBuilder.add(value);
-                    value = returnVariable;
                 }
-                methodBuilder.addStatement("$T $L = $L", modelVariable.type(), modelVariable.name(), variable.getInitialValue() == null ? "null" :value);
+                methodBuilder.addStatement("$T $L = $L", modelVariable.type(), modelVariable.name(), variable.getInitialValue() == null ? "null" : value);
             }
             case Assignment assignment -> {
                 log.debug("Assignment: {}", assignment);
                 String variableName = resolveExpression(assignment.getLeft(), false);
 
-                String value = resolveExpression(assignment.getValue(), true);
+                String value;
 
                 if (assignment.getValue() instanceof ProcExpression procExpression) {
-                    Matcher m = Pattern.compile("__proc_[0-9]+_").matcher(value);
-                    String returnVariable = m.find()
-                            ? m.group()
-                            : null;
-                    if (returnVariable == null) {
-                        log.error("Return variable not found in assignment: {}", assignment);
-                        throw new GenerationImplementationException("Return variable not found in assignment: " + assignment);
+                    if (List.of("nextInt", "nextDouble").contains(procExpression.getProcedureCall().getName())) {
+                        CodeBlock.Builder cbb = CodeBlock.builder();
+                        cbb.add("new $T()."
+                                + procExpression.getProcedureCall().getName()
+                                + "("
+                                + procExpression.getProcedureCall().getArguments().stream()
+                                .map(arg -> ((Atomic)arg).getValue().toString())
+                                .collect(Collectors.joining(", "))
+                                + ")", Random.class);
+                        value = cbb.build().toString();
+                    } else {
+                        value = resolveExpression(assignment.getValue(), true);
+                        Matcher m = Pattern.compile("__proc_[0-9]+_").matcher(value);
+                        String returnVariable = m.find()
+                                ? m.group()
+                                : null;
+                        if (returnVariable != null) {
+//                            log.error("Return variable not found in assignment: {}", assignment);
+//                            throw new GenerationImplementationException("Return variable not found in assignment: " + assignment);
+                            methodBuilder.add(value);
+                            value = returnVariable;
+                        }
                     }
-
-                    methodBuilder.add(value);
-                    value = returnVariable;
+                } else {
+                    value = resolveExpression(assignment.getValue(), true);
                 }
 
                 if (assignment.getLeft() instanceof VariableAccess variableAccess) {
@@ -168,7 +182,7 @@ public class BodyFunction {
 
                     yield (isRightValue
                             ? ".get" + ModelData.capitalizeFirstLetter(variableAccess.getFieldName()) + "()"
-                            : ".get" + ModelData.capitalizeFirstLetter(variableAccess.getFieldName()) + "().set(");
+                            : ".set" + ModelData.capitalizeFirstLetter(variableAccess.getFieldName()) + "(");
                 }
             }
             case ArrayAccess arrayAccess -> {
@@ -198,9 +212,15 @@ public class BodyFunction {
                         throw new GenerationImplementationException("Constructor call in assignment without left value" + procExpression);
                     }
                     Class<?> clazz = resolveClassByOldType(procExpression.getProcedureCall().getName());
-                    yield "new " + clazz.getSimpleName() + "()";
+                    yield CodeBlock.builder().add("new $T()", clazz).build().toString();
                 } catch (ClassNotFoundException e) {
                     String procName = procExpression.getProcedureCall().getName();
+                    if (List.of("add").contains(procName)) {
+                        // Handle special case for add
+                        yield ".add(" + procExpression.getProcedureCall().getArguments().stream()
+                                .map(Node::toString)
+                                .collect(Collectors.joining(", ")) + ");";
+                    }
                     List<Expression> arguments = procExpression.getProcedureCall().getArguments();
                     Function libFunction = library.getAutomata().stream().map(Automaton::getProcDeclarations).flatMap(List::stream)
                             .filter(f -> f.getName().equals(procName))
