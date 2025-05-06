@@ -1,6 +1,7 @@
 plugins {
+    idea
     java
-    id("org.springframework.boot") version "3.4.0"
+    id("org.springframework.boot") version "3.3.6"
     id("io.spring.dependency-management") version "1.1.6"
 }
 
@@ -22,15 +23,15 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
-//    implementation("com.github.javafaker:javafaker:1.0.2") {
-//        exclude(group = "org.yaml", module = "snakeyaml")
-//    }
-    implementation("javax.ws.rs:javax.ws.rs-api:2.1.1")
     implementation("org.reflections:reflections:0.10.2")
     implementation("com.github.vpa-research:libsl-parser:tr-v0.1")
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     implementation("io.swagger.core.v3:swagger-core:2.2.27")
+    compileOnly("org.choco-solver:choco-solver:4.10.18")
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
+    compileOnly("com.github.curious-odd-man:rgxgen:2.0")
+
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
 
 tasks.withType<Test> {
